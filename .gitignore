@@ -1,0 +1,34 @@
+node_modules/
+*.env
+*.local.env
+!*.env.example
+dist/
+*.log
+
+# 音频/视频/测试产物
+*.mp3
+*.mp4
+*.wav
+silent-audio-test-result.json
+spike-*.js
+test-*.js
+generate_*.py
+*.jpg
+*.png
+*.jpeg
+data/recordings/
+
+# Python
+voiceprint-service/venv/
+voiceprint-service/models/
+voiceprint-service/__pycache__/
+voiceprint-embedder/venv/
+voiceprint-embedder/models/
+voiceprint-embedder/__pycache__/
+*.pyc
+
+# IDE & Trae
+.trae/
+.DS_Store
+.vscode/
+.idea/

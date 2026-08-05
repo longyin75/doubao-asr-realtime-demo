@@ -1,0 +1,25 @@
+{
+  "name": "doubao-asr-demo",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "ts-node server/index.ts",
+    "build": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && cp inventory.local.env dist/inventory.local.env",
+    "start": "node dist/server/index.js",
+    "dev:cloud": "ts-node server-cloud/index.ts",
+    "build:cloud": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && mkdir -p dist/public-cloud && cp public-cloud/* dist/public-cloud/ && mkdir -p dist/recordings && cp inventory.local.env dist/inventory.local.env",
+    "start:cloud": "cd dist && CLOUD_PORT=3001 node server-cloud/index.js"
+  },
+  "dependencies": {
+    "@audio/encode-mp3": "^1.2.2",
+    "dotenv": "^17.4.2",
+    "tencentcloud-sdk-nodejs": "^4.1.276",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

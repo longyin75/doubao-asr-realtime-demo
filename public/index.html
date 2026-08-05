@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>豆包语音 ASR 实时识别</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>豆包语音 ASR 实时识别</h1>
+  </header>
+  <main class="app-main">
+    <aside class="panel panel-left">
+      <h2 class="panel-title">参数配置</h2>
+      <div class="config-warning" id="configWarning" hidden></div>
+      <form id="configForm" class="config-form"></form>
+      <div class="config-actions">
+        <span class="config-hint" id="configHint">已加载默认配置</span>
+        <button type="button" class="btn btn-secondary" id="resetBtn">恢复默认</button>
+        <button type="button" class="btn btn-primary" id="applyBtn">应用配置</button>
+      </div>
+    </aside>
+
+    <section class="card center-card">
+      <div class="status-bar">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">就绪</span>
+      </div>
+      <div class="volume-container" id="volumeContainer">
+        <div class="volume-bar" id="volumeBar"></div>
+      </div>
+      <div class="mic-section">
+        <button class="mic-btn" id="micBtn" type="button">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="white">
+            <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="result-area" id="resultArea">
+        <span class="placeholder">识别结果将在这里显示...</span>
+      </div>
+      <div class="error-area" id="errorArea" hidden></div>
+      <p class="hint-text">点击麦克风按钮开始说话，再次点击停止</p>
+      <div class="summary-section" id="summarySection">
+        <div class="summary-toolbar">
+          <button type="button" class="btn btn-primary btn-sm" id="summaryBtn" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align:-2px;margin-right:4px"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            会议总结
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" id="attendeesBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align:-2px;margin-right:4px"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            参会名单
+          </button>
+          <button type="button" class="btn btn-text btn-sm" id="clearSummariesBtn" disabled>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            一键清空
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" id="importBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+            会议导入
+          </button>
+          <span class="summary-hint" id="summaryHint">录音结束后可生成会议纪要</span>
+        </div>
+        <div class="summary-list" id="summaryList">
+          <span class="placeholder">暂无会议纪要</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel panel-right">
+      <h2 class="panel-title">实时状态</h2>
+      <div class="warning-banner" id="warningBanner" hidden></div>
+      <section class="status-section">
+        <h3 class="section-title">连接状态</h3>
+        <div class="kv-list" id="connectionStatus"></div>
+      </section>
+      <section class="status-section">
+        <h3 class="section-title">延迟与计数</h3>
+        <div class="kv-list" id="metricsStatus"></div>
+      </section>
+      <section class="status-section">
+        <h3 class="section-title">本次生效参数</h3>
+        <div class="applied-config" id="appliedConfigDisplay"><span class="placeholder">尚未开始录音</span></div>
+      </section>
+      <section class="status-section">
+        <h3 class="section-title">事件日志</h3>
+        <div class="event-log" id="eventLog"></div>
+      </section>
+      <section class="status-section" id="errorSection" hidden>
+        <h3 class="section-title section-title-error">错误</h3>
+        <div class="error-box" id="errorBox"></div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="modal-overlay" id="attendeesModal" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">参会名单</h3>
+        <button type="button" class="modal-close" id="modalCloseBtn" aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">录入参会人姓名和岗位（均为必填），用于提升ASR人名识别准确率和说话人匹配。</p>
+        <div class="attendee-table" id="attendeeTable">
+          <div class="attendee-header">
+            <span class="col-index">#</span>
+            <span class="col-name">姓名 <span class="required">*</span></span>
+            <span class="col-role">岗位 <span class="required">*</span></span>
+            <span class="col-action"></span>
+          </div>
+          <div class="attendee-rows" id="attendeeRows"></div>
+        </div>
+        <button type="button" class="btn btn-text btn-sm" id="addRowBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:4px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          添加一行
+        </button>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-count" id="modalCount">已录入 0 人</span>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="modalCancelBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="modalSaveBtn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="importModal" hidden>
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <h3 class="modal-title">会议导入</h3>
+        <button type="button" class="modal-close" id="importModalCloseBtn" aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">粘贴会议转录文本或上传文本文件，导入后将直接生成会议纪要，用于验证参会名单与纪要中姓名的关联关系。</p>
+        <div class="import-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="importFileBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:4px"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+            选择文件
+          </button>
+          <input type="file" id="importFileInput" accept=".txt,.md,.text" hidden>
+          <span class="import-file-name" id="importFileName"></span>
+        </div>
+        <textarea id="importTextArea" class="import-textarea" placeholder="请在此粘贴会议转录文本，格式示例：&#10;张三：今天我们讨论一下项目进度...&#10;李四：好的，我先汇报一下...&#10;说话人1：接下来安排一下待办事项..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-count" id="importCharCount">0 字</span>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="importModalCancelBtn">取消</button>
+          <button type="button" class="btn btn-primary" id="importGenerateBtn" disabled>导入并生成纪要</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

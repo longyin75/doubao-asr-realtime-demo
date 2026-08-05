@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎙️ ASR 模式对比测试</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+  color: #fff;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.header {
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(10px);
+  padding: 12px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 64px;
+  gap: 20px;
+}
+
+.header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+
+.params-area {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.param-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+}
+
+.param-group input {
+  width: 60px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+}
+
+.param-group input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logid-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
+.logid-item.two-pass { color: #2196f3; }
+.logid-item.one-pass { color: #4caf50; }
+
+.controls-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.volume-bar {
+  width: 80px;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.volume-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #ffc107, #f44336);
+  width: 0%;
+  transition: width 0.05s linear;
+  border-radius: 3px;
+}
+
+.mic-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: linear-gradient(135deg, #e94560, #ff6b6b);
+  box-shadow: 0 4px 20px rgba(233, 69, 96, 0.4);
+}
+
+.mic-btn:hover { transform: scale(1.05); }
+
+.mic-btn.recording {
+  background: linear-gradient(135deg, #f44336, #ff5252);
+  animation: micPulse 1.5s infinite;
+}
+
+@keyframes micPulse {
+  0%,100% { box-shadow: 0 4px 20px rgba(244, 67, 54, 0.4); }
+  50% { box-shadow: 0 4px 40px rgba(244, 67, 54, 0.8); }
+}
+
+.new-session-btn {
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.new-session-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.main {
+  display: flex;
+  height: calc(100vh - 64px);
+}
+
+.side-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.1);
+  margin: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.side-panel + .side-panel {
+  margin-left: 0;
+}
+
+.divider {
+  width: 1px;
+  background: rgba(255,255,255,0.1);
+}
+
+.side-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.side-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.side-status {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.green { background: #4caf50; box-shadow: 0 0 8px #4caf50; }
+.status-dot.yellow { background: #ffc107; animation: pulse 1s infinite; }
+.status-dot.red { background: #f44336; }
+.status-dot.grey { background: #666; }
+
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.caption-container {
+  flex: 1;
+  overflow-y: auto;
+  background: rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.caption-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.caption-container::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.05);
+}
+
+.caption-container::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.2);
+  border-radius: 3px;
+}
+
+.history-line {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 16px;
+  line-height: 1.6;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  word-break: break-word;
+}
+
+.current-line {
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.08);
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 500;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  word-break: break-word;
+  margin-top: auto;
+}
+
+.current-line.status-cooling {
+  border-left: 3px solid rgba(255,193,7,0.6);
+}
+
+.current-line.status-locked {
+  border-left: 3px solid rgba(76,175,80,0.4);
+}
+
+.current-line.status-active {
+  border-left: 3px solid rgba(33,150,243,0.6);
+}
+
+.speaker-badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.line-text {
+  flex: 1;
+}
+
+.caption-correction {
+  background: rgba(255, 235, 59, 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin: 0 -2px;
+  transition: background 0.6s ease;
+}
+
+.caption-correction.fade-out {
+  background: transparent;
+}
+
+.secondpass-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ff9800, #ffc107);
+  color: #1a1a2e;
+  font-weight: 700;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  animation: badgePop 0.4s ease-out;
+}
+
+@keyframes badgePop {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.secondpass-correction {
+  background: linear-gradient(135deg, rgba(255,152,0,0.5), rgba(255,193,7,0.4));
+  border-radius: 4px;
+  padding: 0 4px;
+  margin: 0 -2px;
+  animation: secondpassGlow 1.2s ease-out;
+  box-shadow: 0 0 8px rgba(255,152,0,0.3);
+}
+
+@keyframes secondpassGlow {
+  0% { background: rgba(255,152,0,0.8); box-shadow: 0 0 16px rgba(255,152,0,0.6); }
+  100% { background: transparent; box-shadow: none; }
+}
+
+.secondpass-newchar {
+  animation: secondpassCharPop 0.5s ease-out;
+}
+
+@keyframes secondpassCharPop {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.line-secondpass-updated {
+  border-left: 3px solid rgba(255,152,0,0.7) !important;
+  transition: border-left-color 2s ease;
+}
+
+.caption-cursor {
+  display: inline-block;
+  width: 3px;
+  height: 1.1em;
+  background: #fff;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 0.9s ease-in-out infinite;
+  border-radius: 1px;
+}
+
+@keyframes cursorBlink {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.error-line {
+  padding: 12px 16px;
+  background: rgba(244, 67, 54, 0.15);
+  border-left: 3px solid #f44336;
+  color: #ef9a9a;
+  font-size: 13px;
+}
+
+.stats-panel {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.stat-card {
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e94560;
+}
+
+.stat-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  margin-top: 2px;
+}
+
+.empty-hint {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎙️ ASR 模式对比测试</h1>
+  
+  <div class="params-area">
+    <div class="param-group">
+      <span>最大说话人数</span>
+      <input type="number" id="maxSpeakers" min="0" max="10" step="1" value="2">
+    </div>
+    <div class="param-group">
+      <span>静音判停(ms)</span>
+      <input type="number" id="endWindowSize" min="200" max="3000" step="100" value="600">
+    </div>
+  </div>
+  
+  <div class="logid-area">
+    <div class="logid-item two-pass" id="logidTwoPass">双向流式 LogID: -</div>
+    <div class="logid-item one-pass" id="logidOnePass">流式输入 LogID: -</div>
+  </div>
+  
+  <div class="controls-area">
+    <div class="volume-bar">
+      <div class="volume-fill" id="volumeFill"></div>
+    </div>
+    <button class="mic-btn" id="micBtn" onclick="toggleMic()">🎤</button>
+    <button class="new-session-btn" onclick="newSession()">🔄 新一轮会话</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="side-panel" id="panelTwoPass">
+    <div class="side-header">
+      <div class="side-title">🔄 双向流式（二遍修正）</div>
+      <div class="side-status">
+        <div class="status-item">
+          <span class="status-dot grey" data-dot="ws"></span>
+          <span>WS</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot grey" data-dot="asr"></span>
+          <span>ASR</span>
+        </div>
+      </div>
+    </div>
+    <div class="caption-container" id="containerTwoPass">
+      <div class="empty-hint" id="hintTwoPass">点击麦克风开始说话</div>
+    </div>
+    <div class="stats-panel">
+      <div class="stat-card">
+        <div class="stat-value" data-stat="firstLatency">-</div>
+        <div class="stat-label">首字延迟(ms)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="lastLatency">-</div>
+        <div class="stat-label">最近响应(ms)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="utteranceCount">0</div>
+        <div class="stat-label">句子数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="pureAppends">0</div>
+        <div class="stat-label">纯追加</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="corrections">0</div>
+        <div class="stat-label">修正</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="secondPass" style="color:#ff9800">0</div>
+        <div class="stat-label">✨二遍修正</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="divider"></div>
+  
+  <div class="side-panel" id="panelOnePass">
+    <div class="side-header">
+      <div class="side-title">⚡ 流式输入（一遍实时）</div>
+      <div class="side-status">
+        <div class="status-item">
+          <span class="status-dot grey" data-dot="ws"></span>
+          <span>WS</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot grey" data-dot="asr"></span>
+          <span>ASR</span>
+        </div>
+      </div>
+    </div>
+    <div class="caption-container" id="containerOnePass">
+      <div class="empty-hint" id="hintOnePass">点击麦克风开始说话</div>
+    </div>
+    <div class="stats-panel">
+      <div class="stat-card">
+        <div class="stat-value" data-stat="firstLatency">-</div>
+        <div class="stat-label">首字延迟(ms)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="lastLatency">-</div>
+        <div class="stat-label">最近响应(ms)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="utteranceCount">0</div>
+        <div class="stat-label">句子数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="pureAppends">0</div>
+        <div class="stat-label">纯追加</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" data-stat="corrections">0</div>
+        <div class="stat-label">修正</div>
+      </div>
+      <div class="stat-card" style="opacity:0.3">
+        <div class="stat-value">-</div>
+        <div class="stat-label">无二遍</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function getSpeakerColor(idx) {
+  const colors = ['#2196f3', '#f44336', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4', '#e91e63', '#ffc107', '#009688', '#673ab7'];
+  return colors[idx % colors.length];
+}
+
+function floatTo16BitPCM(float32Array) {
+  const int16 = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return int16;
+}
+
+function resampleTo16k(float32Array, fromRate) {
+  if (fromRate === 16000) return float32Array;
+  const newLength = Math.round(float32Array.length * 16000 / fromRate);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const ratio = i * fromRate / 16000;
+    const i0 = Math.floor(ratio);
+    const i1 = Math.min(i0 + 1, float32Array.length - 1);
+    const frac = ratio - i0;
+    result[i] = float32Array[i0] * (1 - frac) + float32Array[i1] * frac;
+  }
+  return result;
+}
+
+function getBasePath() {
+  const p = location.pathname;
+  if (p.endsWith('/')) return p;
+  const idx = p.lastIndexOf('/');
+  return idx >= 0 ? p.substring(0, idx + 1) : '/';
+}
+
+const CAPTION_STATES = { ACTIVE: 'active', COOLING: 'cooling', LOCKED: 'locked' };
+
+class SideCaptionManager {
+  constructor(sideEl, mode) {
+    this.sideEl = sideEl;
+    this.mode = mode;
+    this.container = sideEl.querySelector('.caption-container');
+    this.history = [];
+    this.current = null;
+    this.coolingTimer = null;
+    this.finalizedMap = new Map(); // startTime -> {el, text} 支持二遍修正更新
+    this.firstAudioSentAt = 0;
+    this.firstResultAt = 0;
+    this.lastResultAt = 0;
+    this.stats = {
+      firstLatency: 0,
+      lastLatency: 0,
+      utteranceCount: 0,
+      pureAppends: 0,
+      corrections: 0,
+      secondPass: 0
+    };
+    this.wsConnected = false;
+    this.asrConnected = false;
+    this.logid = null;
+    this._updateStats();
+  }
+
+  reset() {
+    clearTimeout(this.coolingTimer);
+    if (this.current?.el) this.current.el.remove();
+    for (const h of this.history) {
+      if (h.el) h.el.remove();
+    }
+    const errorEl = this.container.querySelector('.error-line');
+    if (errorEl) errorEl.remove();
+    
+    this.history = [];
+    this.current = null;
+    this.finalizedMap = new Map();
+    this.firstAudioSentAt = 0;
+    this.firstResultAt = 0;
+    this.lastResultAt = 0;
+    this.stats = {
+      firstLatency: 0,
+      lastLatency: 0,
+      utteranceCount: 0,
+      pureAppends: 0,
+      corrections: 0,
+      secondPass: 0
+    };
+    this.logid = null;
+    this.asrConnected = false;
+    
+    this.container.innerHTML = '<div class="empty-hint">点击麦克风开始说话</div>';
+    this._updateLogidDisplay();
+    this._updateStatus('asr', 'disconnected');
+    this._updateStats();
+  }
+
+  setConnected(connected) {
+    this.wsConnected = connected;
+    this.asrConnected = connected;
+    this._updateStatus('ws', connected ? 'connected' : 'disconnected');
+    this._updateStatus('asr', connected ? 'connected' : 'disconnected');
+  }
+
+  prepareForReconnect() {
+    // 新会话开始，锁定当前行（如果有），清空finalizedMap以避免start_time冲突
+    // 不删除已显示的历史行
+    clearTimeout(this.coolingTimer);
+    this.coolingTimer = null;
+    if (this.current) {
+      if (this.current.status !== CAPTION_STATES.LOCKED) {
+        this._lockCurrentWithMap(this.current.startTime);
+      }
+    }
+    this.current = null;
+    this.finalizedMap = new Map();
+    const emptyHint = this.container.querySelector('.empty-hint');
+    if (emptyHint) emptyHint.remove();
+  }
+
+  setLogid(logid) {
+    this.logid = logid;
+    this._updateLogidDisplay();
+  }
+
+  _updateLogidDisplay() {
+    const elId = this.mode === 'two_pass' ? 'logidTwoPass' : 'logidOnePass';
+    const el = document.getElementById(elId);
+    const label = this.mode === 'two_pass' ? '双向流式 LogID' : '流式输入 LogID';
+    el.textContent = `${label}: ${this.logid || '-'}`;
+  }
+
+  _updateStatus(which, state) {
+    const dot = this.sideEl.querySelector(`.status-dot[data-dot="${which}"]`);
+    if (!dot) return;
+    dot.className = `status-dot ${state === 'connected' ? 'green' : state === 'connecting' ? 'yellow' : state === 'error' ? 'red' : 'grey'}`;
+  }
+
+  onError(message) {
+    this._updateStatus('asr', 'error');
+    const errorEl = document.createElement('div');
+    errorEl.className = 'error-line';
+    errorEl.textContent = `错误: ${message}`;
+    
+    const existingError = this.container.querySelector('.error-line');
+    if (existingError) existingError.remove();
+    this.container.appendChild(errorEl);
+    this._scrollToBottom();
+  }
+
+  onResult(msg) {
+    const now = Date.now();
+    
+    // 处理所有 utterances（包括之前已definite的和当前进行中的）
+    if (msg.utterances && Array.isArray(msg.utterances) && msg.utterances.length > 0) {
+      // 1. 先处理除最后一个之外的所有definite utterances（它们是已完成的语句）
+      for (let i = 0; i < msg.utterances.length - 1; i++) {
+        const utt = msg.utterances[i];
+        if (!utt || !utt.text) continue;
+        this._processUtterance(utt, now);
+      }
+      // 2. 最后一个utterance是当前进行中的（可能definite也可能not）
+      const lastUtt = msg.utterances[msg.utterances.length - 1];
+      if (lastUtt && lastUtt.text) {
+        this._processUtterance(lastUtt, now);
+      }
+    } else if (msg.text) {
+      // fallback: 没有utterances数组时，用顶层text
+      this._processUtterance({
+        text: msg.text,
+        definite: !!msg.isFinal,
+        speaker_id: this.current?.speakerId || 0,
+        start_time: this.current?.startTime || now,
+        end_time: now
+      }, now);
+    }
+
+    this._updateStats();
+    this._scrollToBottom();
+  }
+
+  _processUtterance(utt, now) {
+    if (!this.firstResultAt && utt.text) {
+      this.firstResultAt = now;
+      this.stats.firstLatency = this.firstAudioSentAt > 0 ? now - this.firstAudioSentAt : 0;
+    }
+    this.lastResultAt = now;
+    this.stats.lastLatency = this.firstAudioSentAt > 0 ? now - this.firstAudioSentAt : 0;
+
+    const startTime = utt.start_time != null ? utt.start_time : (utt.startTime || 0);
+    const endTime = utt.end_time != null ? utt.end_time : (utt.endTime || now);
+    const text = utt.text || '';
+    const definite = utt.definite === true;
+    const speakerIdRaw = utt.speaker_id != null ? utt.speaker_id : (utt.speakerId != null ? utt.speakerId : 0);
+    const speakerId = parseInt(speakerIdRaw, 10) || 0;
+
+    // 已finalized的utterance：检查是否有二遍修正更新
+    const finalized = this.finalizedMap.get(startTime);
+    if (finalized) {
+      if (finalized.text !== text && text) {
+        const oldText = finalized.text;
+        finalized.text = text;
+        this._applySecondPassUpdate(finalized.el, oldText, text);
+      }
+      return;
+    }
+
+    // 当前没有活动行：创建新行
+    if (!this.current) {
+      const el = this._pushNewline(startTime, endTime, text, definite, speakerId);
+      if (definite) {
+        this._lockCurrentWithMap(startTime);
+      }
+      return;
+    }
+
+    // 是同一个utterance：更新文本
+    if (startTime === this.current.startTime) {
+      if (this.current.status === CAPTION_STATES.LOCKED) return;
+
+      // 说话人变了：先锁定再创建新行
+      if (speakerId !== this.current.speakerId) {
+        this._lockCurrentWithMap(this.current.startTime);
+        this._pushNewline(startTime, endTime, text, definite, speakerId);
+        if (definite) {
+          this._lockCurrentWithMap(startTime);
+        }
+        return;
+      }
+
+      if (definite && this.current.status === CAPTION_STATES.ACTIVE) {
+        this.current.status = CAPTION_STATES.COOLING;
+        this.current.el.classList.remove('status-active');
+        this.current.el.classList.add('status-cooling');
+        this._startCoolingTimer();
+      }
+
+      this._applyTextUpdate(text);
+      this.current.text = text;
+      this.current.endTime = endTime;
+      return;
+    }
+
+    // 不同的utterance：判断是"新语句"还是"漏掉的旧语句"
+    if (startTime > this.current.startTime) {
+      // 新语句（startTime更大）：锁定当前，创建新行
+      this._lockCurrentWithMap(this.current.startTime);
+      this._pushNewline(startTime, endTime, text, definite, speakerId);
+      if (definite) {
+        this._lockCurrentWithMap(startTime);
+      }
+    } else {
+      // 旧语句（startTime更小）：之前漏掉的definite语句，直接追加到历史
+      if (definite && text) {
+        const el = this._appendHistoryLine(startTime, endTime, text, speakerId);
+        this.finalizedMap.set(startTime, { el, text });
+      }
+    }
+  }
+
+  _lockCurrentWithMap(startTime) {
+    if (!this.current) return;
+    const el = this.current.el;
+    const text = this.current.text;
+    this._lockCurrent();
+    this.finalizedMap.set(startTime, { el, text });
+  }
+
+  _appendHistoryLine(startTime, endTime, text, speakerId) {
+    const hint = this.container.querySelector('.empty-hint');
+    if (hint) hint.remove();
+    const line = document.createElement('div');
+    line.className = 'caption-line history-line status-locked';
+    line.dataset.speaker = speakerId;
+    line.dataset.start = startTime;
+    line.innerHTML = `
+      <span class="speaker-pill speaker-${speakerId}">S${speakerId}</span>
+      <span class="caption-text"></span>
+    `;
+    const textEl = line.querySelector('.caption-text');
+    textEl.textContent = text;
+    
+    // 插入到当前行之前（保持时间顺序）
+    if (this.current && this.current.el.parentNode) {
+      this.container.insertBefore(line, this.current.el);
+    } else {
+      this.container.appendChild(line);
+    }
+    
+    return line;
+  }
+
+  _applyTextUpdate(newText) {
+    const oldText = this.current.text;
+    if (oldText === newText) return { type: 'no_change' };
+
+    let prefixLen = 0;
+    const minLen = Math.min(oldText.length, newText.length);
+    while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) prefixLen++;
+
+    let suffixLen = 0;
+    const maxSuf = Math.min(oldText.length - prefixLen, newText.length - prefixLen);
+    while (suffixLen < maxSuf &&
+           oldText[oldText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
+      suffixLen++;
+    }
+
+    const oldMid = oldText.substring(prefixLen, oldText.length - suffixLen);
+    const newMid = newText.substring(prefixLen, newText.length - suffixLen);
+    const isPureAppend = prefixLen >= oldText.length && suffixLen === 0;
+
+    if (isPureAppend) {
+      const added = newText.substring(oldText.length);
+      this.stats.pureAppends++;
+      this._renderAppend(added);
+      return { type: 'pure_append' };
+    }
+
+    const isSmall = oldMid.length <= 3 && newMid.length <= 3;
+    if (isSmall) {
+      this.stats.corrections++;
+      this._renderCorrection(prefixLen, oldMid, newMid, newText);
+      return { type: 'small_correction' };
+    } else {
+      this.stats.corrections++;
+      this._renderFullUpdate(newText);
+      return { type: 'large_correction' };
+    }
+  }
+
+  _applySecondPassUpdate(lineEl, oldText, newText) {
+    if (oldText === newText || !newText) return;
+
+    this.stats.secondPass++;
+
+    // 1. 添加 ✨二遍 徽章（如果没有的话）
+    let badge = lineEl.querySelector('.secondpass-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'secondpass-badge';
+      badge.textContent = '✨二遍';
+      const textEl = lineEl.querySelector('.line-text, .caption-text');
+      if (textEl) {
+        lineEl.insertBefore(badge, textEl);
+      } else {
+        lineEl.insertBefore(badge, lineEl.firstChild);
+      }
+    }
+
+    // 2. 左边框高亮（金色闪烁）
+    lineEl.classList.add('line-secondpass-updated');
+    setTimeout(() => {
+      lineEl.style.borderLeftColor = 'rgba(255,152,0,0.15)';
+    }, 1500);
+
+    // 3. diff：找出前后缀和中间变化部分
+    let prefixLen = 0;
+    const minLen = Math.min(oldText.length, newText.length);
+    while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) prefixLen++;
+
+    let suffixLen = 0;
+    const maxSuf = Math.min(oldText.length - prefixLen, newText.length - prefixLen);
+    while (suffixLen < maxSuf &&
+           oldText[oldText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
+      suffixLen++;
+    }
+
+    const prefix = newText.substring(0, prefixLen);
+    const changedNew = newText.substring(prefixLen, newText.length - suffixLen);
+    const suffix = newText.substring(newText.length - suffixLen);
+
+    // 4. 重新渲染文本，变化部分用金色高亮
+    const textEl = lineEl.querySelector('.line-text, .caption-text');
+    if (!textEl) return;
+    textEl.textContent = '';
+    textEl.appendChild(document.createTextNode(prefix));
+
+    if (changedNew) {
+      const span = document.createElement('span');
+      span.className = 'secondpass-correction';
+      span.textContent = changedNew;
+      textEl.appendChild(span);
+      // 金色高亮1.2s后淡出
+      setTimeout(() => {
+        if (span.parentNode) {
+          const t = document.createTextNode(changedNew);
+          span.parentNode.replaceChild(t, span);
+        }
+      }, 1200);
+    } else if (newText.length > oldText.length) {
+      // 纯追加的二遍修正（二遍补充了内容），逐字弹出
+      const added = newText.substring(oldText.length);
+      const chars = Array.from(added);
+      let i = 0;
+      const addChar = () => {
+        if (i >= chars.length) return;
+        const ch = document.createElement('span');
+        ch.className = 'secondpass-newchar';
+        ch.textContent = chars[i];
+        textEl.appendChild(ch);
+        i++;
+        if (i < chars.length) requestAnimationFrame(addChar);
+      };
+      requestAnimationFrame(addChar);
+    }
+
+    if (suffix) {
+      textEl.appendChild(document.createTextNode(suffix));
+    }
+
+    this._scrollToBottom();
+  }
+
+  _renderAppend(text) {
+    const textEl = this.current.textEl;
+    const cursor = this.current.cursorEl;
+    const chars = Array.from(text);
+    let i = 0;
+    const batchSize = Math.max(1, Math.ceil(chars.length / 5));
+    
+    const appendNext = () => {
+      if (i >= chars.length || !this.current) return;
+      const batch = chars.slice(i, i + batchSize).join('');
+      const node = document.createTextNode(batch);
+      textEl.insertBefore(node, cursor);
+      i += batchSize;
+      if (i < chars.length) requestAnimationFrame(appendNext);
+    };
+    requestAnimationFrame(appendNext);
+  }
+
+  _renderCorrection(prefixLen, oldMid, newMid, fullText) {
+    const textEl = this.current.textEl;
+    const cursor = this.current.cursorEl;
+    
+    const prefix = fullText.substring(0, prefixLen);
+    const corrected = newMid;
+    const suffix = fullText.substring(prefixLen + newMid.length);
+    
+    textEl.innerHTML = '';
+    textEl.appendChild(document.createTextNode(prefix));
+    
+    if (corrected) {
+      const span = document.createElement('span');
+      span.className = 'caption-correction';
+      span.textContent = corrected;
+      textEl.appendChild(span);
+      setTimeout(() => {
+        span.classList.add('fade-out');
+        setTimeout(() => {
+          if (span.parentNode) {
+            const t = document.createTextNode(corrected);
+            span.parentNode.replaceChild(t, span);
+          }
+        }, 600);
+      }, 150);
+    }
+    
+    textEl.appendChild(document.createTextNode(suffix));
+    textEl.appendChild(cursor);
+  }
+
+  _renderFullUpdate(newText) {
+    const textEl = this.current.textEl;
+    const cursor = this.current.cursorEl;
+    textEl.style.opacity = '0.3';
+    textEl.style.transition = 'opacity 0.12s';
+    setTimeout(() => {
+      if (!this.current) return;
+      textEl.innerHTML = '';
+      textEl.appendChild(document.createTextNode(newText));
+      textEl.appendChild(cursor);
+      textEl.style.opacity = '1';
+    }, 120);
+  }
+
+  _startCoolingTimer() {
+    clearTimeout(this.coolingTimer);
+    this.current.coolingStartedAt = Date.now();
+    this.coolingTimer = setTimeout(() => {
+      if (this.current && this.current.status === CAPTION_STATES.COOLING) {
+        this.current.status = CAPTION_STATES.LOCKED;
+        this.current.el.classList.add('status-locked');
+        this.current.el.classList.remove('status-cooling');
+        this._removeCursor();
+      }
+    }, 800);
+  }
+
+  _removeCursor() {
+    if (this.current?.cursorEl?.parentNode) {
+      this.current.cursorEl.remove();
+    }
+  }
+
+  _lockCurrent() {
+    if (!this.current) return;
+    clearTimeout(this.coolingTimer);
+    
+    if (this.current.status !== CAPTION_STATES.LOCKED) {
+      this.current.status = CAPTION_STATES.LOCKED;
+      this._removeCursor();
+    }
+    
+    this.current.el.classList.add('status-locked');
+    this.current.el.classList.remove('status-active', 'status-cooling');
+    this.current.el.classList.remove('current-line');
+    this.current.el.classList.add('history-line');
+    
+    this.history.push({
+      startTime: this.current.startTime,
+      speakerId: this.current.speakerId,
+      text: this.current.text,
+      el: this.current.el
+    });
+    
+    this.stats.utteranceCount++;
+    this.current = null;
+  }
+
+  _pushNewline(startTime, endTime, text, definite, speakerId) {
+    const hint = this.container.querySelector('.empty-hint');
+    if (hint) hint.remove();
+    
+    const line = document.createElement('div');
+    line.className = `current-line status-${definite ? 'cooling' : 'active'}`;
+    
+    const badge = document.createElement('span');
+    badge.className = 'speaker-badge';
+    badge.style.background = getSpeakerColor(speakerId);
+    badge.textContent = `说话人${speakerId + 1}`;
+    
+    const textEl = document.createElement('span');
+    textEl.className = 'line-text';
+    
+    const cursor = document.createElement('span');
+    cursor.className = 'caption-cursor';
+    
+    textEl.appendChild(document.createTextNode(text));
+    if (!definite) textEl.appendChild(cursor);
+    line.appendChild(badge);
+    line.appendChild(textEl);
+    this.container.appendChild(line);
+
+    this.current = {
+      startTime,
+      endTime,
+      speakerId,
+      text,
+      status: definite ? CAPTION_STATES.COOLING : CAPTION_STATES.ACTIVE,
+      el: line,
+      textEl: textEl,
+      cursorEl: cursor,
+      coolingStartedAt: definite ? Date.now() : null
+    };
+
+    if (definite) {
+      this._startCoolingTimer();
+    }
+    
+    return line;
+  }
+
+  _scrollToBottom() {
+    this.container.scrollTop = this.container.scrollHeight;
+  }
+
+  _updateStats() {
+    const statEls = this.sideEl.querySelectorAll('.stat-value[data-stat]');
+    for (const el of statEls) {
+      const key = el.dataset.stat;
+      if (key === 'firstLatency') {
+        el.textContent = this.stats.firstLatency > 0 ? this.stats.firstLatency : '-';
+      } else if (key === 'lastLatency') {
+        el.textContent = this.stats.lastLatency > 0 ? this.stats.lastLatency : '-';
+      } else {
+        el.textContent = this.stats[key] || 0;
+      }
+    }
+  }
+
+  markFirstAudioSent() {
+    if (this.firstAudioSentAt === 0) {
+      this.firstAudioSentAt = Date.now();
+    }
+  }
+}
+
+let ws = null;
+let mediaStream = null;
+let audioContext = null;
+let scriptNode = null;
+let sourceNode = null;
+let pcmBuffer = [];
+let sendInterval = null;
+let isRecording = false;
+let twoPassMgr = null;
+let onePassMgr = null;
+let connectedModes = new Set();
+
+function initWs() {
+  if (ws) {
+    try { ws.close(); } catch(e) {}
+    ws = null;
+  }
+  
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${location.host}${getBasePath()}ws-compare`;
+  ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
+  connectedModes.clear();
+
+  ws.onopen = () => {
+    twoPassMgr._updateStatus('ws', 'connected');
+    onePassMgr._updateStatus('ws', 'connected');
+    
+    if (isRecording) {
+      sendStartConfig();
+    }
+  };
+
+  ws.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      const msg = JSON.parse(event.data);
+      handleWsMessage(msg);
+    }
+  };
+
+  ws.onerror = () => {
+    twoPassMgr._updateStatus('ws', 'error');
+    onePassMgr._updateStatus('ws', 'error');
+  };
+
+  ws.onclose = () => {
+    twoPassMgr._updateStatus('ws', 'disconnected');
+    onePassMgr._updateStatus('ws', 'disconnected');
+    twoPassMgr._updateStatus('asr', 'disconnected');
+    onePassMgr._updateStatus('asr', 'disconnected');
+    ws = null;
+    setTimeout(() => {
+      if (!ws) initWs();
+    }, 3000);
+  };
+}
+
+function handleWsMessage(msg) {
+  let mgr = null;
+  if (msg.mode === 'two_pass') {
+    mgr = twoPassMgr;
+  } else if (msg.mode === 'one_pass') {
+    mgr = onePassMgr;
+  }
+  
+  switch(msg.type) {
+    case 'connected':
+      if (mgr) {
+        mgr.setConnected(true);
+        mgr.setLogid(msg.logid);
+        connectedModes.add(msg.mode);
+        // 只要有任意一路连接成功且正在录音，立即开始发送音频（不等第二路）
+        // 后端会自动只转发给已OPEN的连接
+        if (isRecording && !sendInterval) {
+          startAudioSending();
+        }
+      }
+      break;
+      
+    case 'logid_update':
+      if (mgr) {
+        mgr.setLogid(msg.logid);
+      }
+      break;
+      
+    case 'result':
+      if (mgr) {
+        mgr.onResult(msg);
+      }
+      break;
+      
+    case 'reconnecting':
+      if (mgr) {
+        mgr._updateStatus('asr', 'connecting');
+        mgr.prepareForReconnect();
+      }
+      break;
+      
+    case 'error':
+      if (mgr) {
+        mgr.onError(msg.message);
+      }
+      break;
+  }
+}
+
+function sendStartConfig() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  
+  const maxSpeakers = parseInt(document.getElementById('maxSpeakers').value, 10) || 2;
+  const endWindowSize = parseInt(document.getElementById('endWindowSize').value, 10) || 600;
+  
+  const config = {
+    max_speakers: maxSpeakers,
+    end_window_size: endWindowSize,
+    enable_itn: true,
+    enable_punc: true,
+    enable_ddc: true,
+    enable_speaker_info: true
+  };
+  
+  ws.send(JSON.stringify({ type: 'start', config }));
+}
+
+function toggleMic() {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function setParamsDisabled(disabled) {
+  document.getElementById('maxSpeakers').disabled = disabled;
+  document.getElementById('endWindowSize').disabled = disabled;
+}
+
+function startRecording() {
+  twoPassMgr.reset();
+  onePassMgr.reset();
+  connectedModes.clear();
+  setParamsDisabled(true);
+  
+  navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+  }).then(stream => {
+    mediaStream = stream;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    audioContext = new AudioCtx();
+    sourceNode = audioContext.createMediaStreamSource(stream);
+    scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+    pcmBuffer = [];
+
+    scriptNode.onaudioprocess = (e) => {
+      const inputData = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < inputData.length; i++) {
+        sum += inputData[i] * inputData[i];
+      }
+      const rms = Math.sqrt(sum / inputData.length);
+      const vol = Math.min(1, rms * 3);
+      document.getElementById('volumeFill').style.width = (vol * 100) + '%';
+
+      const resampled = resampleTo16k(inputData, audioContext.sampleRate);
+      const int16 = floatTo16BitPCM(resampled);
+      const bytes = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
+      pcmBuffer.push(bytes);
+    };
+
+    sourceNode.connect(scriptNode);
+    scriptNode.connect(audioContext.destination);
+    isRecording = true;
+    
+    document.getElementById('micBtn').classList.add('recording');
+    document.getElementById('micBtn').textContent = '⏹️';
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendStartConfig();
+    } else {
+      initWs();
+    }
+  }).catch(err => {
+    setParamsDisabled(false);
+    alert('无法访问麦克风: ' + err.message);
+  });
+}
+
+function startAudioSending() {
+  if (sendInterval) clearInterval(sendInterval);
+  // 立即flush一次堆积的音频，不等第一个200ms间隔
+  sendAudioChunk();
+  sendInterval = setInterval(sendAudioChunk, 200);
+}
+
+function sendAudioChunk() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (pcmBuffer.length === 0) return;
+  
+  let totalLen = 0;
+  for (const b of pcmBuffer) totalLen += b.length;
+  
+  // 限制缓冲：只发送最近500ms的音频（16kHz*16bit*1ch = 32000字节/秒，500ms = 16000字节）
+  // 丢弃过旧的堆积音频，防止burst发送导致ASR排队延迟
+  const MAX_BUFFER = 16000;
+  if (totalLen > MAX_BUFFER) {
+    let excess = totalLen - MAX_BUFFER;
+    while (excess > 0 && pcmBuffer.length > 0) {
+      const first = pcmBuffer[0];
+      if (first.length <= excess) {
+        excess -= first.length;
+        pcmBuffer.shift();
+      } else {
+        pcmBuffer[0] = first.slice(excess);
+        excess = 0;
+      }
+    }
+    totalLen = MAX_BUFFER;
+  }
+  
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const b of pcmBuffer) { merged.set(b, offset); offset += b.length; }
+  pcmBuffer = [];
+
+  const CHUNK_SIZE = 6400;
+  for (let i = 0; i < merged.length; i += CHUNK_SIZE) {
+    const chunk = merged.slice(i, i + CHUNK_SIZE);
+    ws.send(chunk.buffer);
+  }
+  
+  twoPassMgr.markFirstAudioSent();
+  onePassMgr.markFirstAudioSent();
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  
+  isRecording = false;
+  setParamsDisabled(false);
+  
+  if (sendInterval) { clearInterval(sendInterval); sendInterval = null; }
+  
+  try { ws?.send(JSON.stringify({ type: 'stop' })); } catch(e) {}
+  
+  if (scriptNode) { try { scriptNode.disconnect(); } catch(e) {} scriptNode = null; }
+  if (sourceNode) { try { sourceNode.disconnect(); } catch(e) {} sourceNode = null; }
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+  if (audioContext) { try { audioContext.close(); } catch(e) {} audioContext = null; }
+  
+  pcmBuffer = [];
+  document.getElementById('volumeFill').style.width = '0%';
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('micBtn').textContent = '🎤';
+}
+
+function newSession() {
+  if (isRecording) {
+    stopRecording();
+  }
+  
+  if (ws) {
+    try { ws.close(); } catch(e) {}
+    ws = null;
+  }
+  
+  twoPassMgr.reset();
+  onePassMgr.reset();
+  connectedModes.clear();
+  
+  setTimeout(() => {
+    initWs();
+  }, 100);
+}
+
+window.addEventListener('load', () => {
+  const panelTwoPass = document.getElementById('panelTwoPass');
+  const panelOnePass = document.getElementById('panelOnePass');
+  
+  twoPassMgr = new SideCaptionManager(panelTwoPass, 'two_pass');
+  onePassMgr = new SideCaptionManager(panelOnePass, 'one_pass');
+  
+  initWs();
+});
+
+window.addEventListener('beforeunload', () => {
+  stopRecording();
+  if (ws) try { ws.close(); } catch(e) {}
+});
+</script>
+</body>
+</html>
