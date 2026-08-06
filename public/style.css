@@ -569,164 +569,22 @@ body {
 }
 
 .result-area {
-  min-height: 200px;
-  max-height: 50vh;
+  min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
   background: #f8f9fa;
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
   border: 1px solid #e8eaed;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  position: relative;
-  overflow-y: auto;
 }
 
 .result-area .placeholder {
   color: #9aa0a6;
+  font-style: italic;
   font-size: 16px;
-  text-align: center;
 }
 
-/* 历史字幕 */
-.result-area .caption-history {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-  margin-bottom: 12px;
-  transition: all 0.4s ease;
-}
-
-.result-area .history-line {
-  background: #fff;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 14px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  line-height: 1.5;
-  width: 100%;
-}
-
-.result-area .history-line.fading-out {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-
-.result-area .history-line .badge {
-  flex-shrink: 0;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  font-weight: 500;
-  color: #fff;
-  white-space: nowrap;
-}
-
-.result-area .history-line .utt-text {
-  word-break: break-word;
-  color: #3c4043;
-  flex: 1;
-}
-
-/* 当前单行字幕 */
-.result-area .caption-current {
-  background: #202124;
-  color: #fff;
-  border-radius: 12px;
-  padding: 12px 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 22px;
-  line-height: 1.5;
-  align-self: center;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  transition: all 0.3s ease;
-  max-width: 95%;
-  border: 2px solid transparent;
-  animation: captionSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes captionSlideUp {
-  from { opacity: 0; transform: translateY(20px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.result-area .caption-current.status-active {
-  border-color: rgba(26,115,232,0.5);
-}
-
-.result-area .caption-current.status-cooling {
-  border-color: rgba(251,188,4,0.6);
-}
-
-.result-area .caption-current.status-locked {
-  border-color: rgba(52,168,83,0.4);
-}
-
-.result-area .caption-current .speaker-badge {
-  flex-shrink: 0;
-  padding: 4px 12px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: all 0.3s ease;
-}
-
-.result-area .caption-current .speaker-badge.badge-update {
-  animation: badgePop 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-}
-
-@keyframes badgePop {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-  100% { transform: scale(1); }
-}
-
-.result-area .caption-current .caption-text-wrapper {
-  position: relative;
-  min-width: 20px;
-}
-
-.result-area .caption-current .caption-text {
-  word-break: break-word;
-}
-
-.result-area .caption-correction {
-  background: rgba(255, 235, 59, 0.45);
-  border-radius: 3px;
-  padding: 0 3px;
-  margin: 0 -1px;
-  transition: background 0.6s ease;
-}
-
-.result-area .caption-correction.fade-out {
-  background: transparent;
-}
-
-.result-area .caption-cursor {
-  display: inline-block;
-  width: 3px;
-  height: 1.1em;
-  background: #fff;
-  margin-left: 3px;
-  vertical-align: text-bottom;
-  animation: cursorBlink 0.9s ease-in-out infinite;
-  border-radius: 1px;
-}
-
-@keyframes cursorBlink {
-  0%, 45% { opacity: 1; }
-  50%, 95% { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-/* 旧的多行样式保留但不再默认使用（兼容会议总结等功能） */
 .result-area .result-text {
   font-size: 18px;
   line-height: 1.6;

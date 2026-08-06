@@ -8,8 +8,6 @@ export interface SanitizedConfig {
   enable_punc: boolean;
   enable_ddc: boolean;
   enable_speaker_info: boolean;
-  enable_two_pass: boolean;
-  max_speakers: number;
   end_window_size: number;
 }
 
@@ -119,14 +117,6 @@ export const PARAM_SCHEMAS: ParamSchema[] = [
     group: 'features',
   },
   {
-    key: 'enable_two_pass',
-    label: '启用二遍大模型修正',
-    hint: '开启后使用大模型做二遍修正，准确率更高但有延迟；关闭后仅用一遍实时流，延迟最低但可能有错字',
-    type: 'bool',
-    default: true,
-    group: 'features',
-  },
-  {
     key: 'enable_ddc',
     label: 'DDC 顺滑去语气词',
     hint: '删除"嗯/啊/那个/就是"等停顿词和重复词，文本更通顺（默认开启）',
@@ -141,18 +131,6 @@ export const PARAM_SCHEMAS: ParamSchema[] = [
     type: 'bool',
     default: true,
     group: 'speaker',
-  },
-  {
-    key: 'max_speakers',
-    label: '最大说话人数',
-    hint: '0=自动识别；建议 2-4 分离更准确；范围 0-10，默认 0',
-    type: 'number',
-    default: 0,
-    min: 0,
-    max: 10,
-    step: 1,
-    group: 'speaker',
-    dependsOn: { key: 'enable_speaker_info', value: true },
   },
   {
     key: 'end_window_size',
@@ -221,21 +199,14 @@ export function buildDoubaoConnection(config: SanitizedConfig, hotwordConfig?: H
     end_window_size: config.end_window_size,
     force_to_speech_time: 1000,
     show_utterances: true,
+    enable_nonstream: true,
   };
-
-  // 二遍大模型修正：enable_nonstream=true 启用二遍
-  if (config.enable_two_pass !== false) {
-    request.enable_nonstream = true;
-  }
 
   if (config.enable_ddc) request.enable_ddc = true;
 
   if (config.enable_speaker_info) {
     request.enable_speaker_info = true;
     request.ssd_version = '200';
-    if (config.max_speakers > 0) {
-      request.max_speakers = config.max_speakers;
-    }
   }
 
   const hotwords = hotwordConfig?.hotwords && hotwordConfig.hotwords.length > 0

@@ -127,7 +127,7 @@ const server = http.createServer((req, res) => {
   res.end('Not Found');
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
 
 server.on('upgrade', (req, socket, head) => {
   const url = req.url || '';
@@ -373,7 +373,14 @@ wss.on('connection', (clientWs: WebSocket) => {
           console.log(`[${requestId}] First audio packet received`);
         }
         const buf = Buffer.from(msg as Buffer);
-        doubaoWs.send(buildAudioRequest(buf));
+
+        // Chunk audio to safe frame size (max 32KB per frame for Doubao protocol)
+        const MAX_FRAME_SIZE = 32 * 1024;
+        for (let offset = 0; offset < buf.length; offset += MAX_FRAME_SIZE) {
+          const end = Math.min(offset + MAX_FRAME_SIZE, buf.length);
+          const chunk = buf.subarray(offset, end);
+          doubaoWs.send(buildAudioRequest(chunk));
+        }
 
         if (totalPcmBytes + buf.length <= config.maxPcmBytes) {
           pcmChunks.push(buf);

@@ -53,7 +53,7 @@ export function parseServerResponse(data: Buffer): ParsedResponse {
   const headerSize = (byte0 & 0x0F) * 4;
   const msgType = (byte1 >> 4) & 0x0F;
   const flags = byte1 & 0x0F;
-  const hasSequence = (flags & 0x01) === 0x01;
+  let hasSequence = (flags & 0x01) === 0x01;
   const isLast = (flags & 0x02) === 0x02;
 
   let offset = headerSize;
@@ -68,11 +68,23 @@ export function parseServerResponse(data: Buffer): ParsedResponse {
   if (data.length < offset + 4) {
     return { type: 'error', code: -1, message: 'Response too short for payload size' };
   }
-  const payloadSize = data.readUInt32BE(offset);
+  let payloadSize = data.readUInt32BE(offset);
+
+  // Defensive parsing: if payloadSize looks unreasonably large (exceeds remaining data),
+  // the server may have included a sequence number even though flags didn't indicate it.
+  if (payloadSize > data.length - offset - 4 && !hasSequence && data.length >= offset + 8) {
+    hasSequence = true;
+    offset += 4;
+    payloadSize = data.readUInt32BE(offset);
+  }
+
   offset += 4;
 
-  if (payloadSize > 10 * 1024 * 1024) {
-    return { type: 'error', code: -1, message: `Payload size too large: ${payloadSize}` };
+  // Allow up to 1MB for payload (Doubao returns JSON results, never large)
+  if (payloadSize > 1 * 1024 * 1024) {
+    // Log diagnostic info for debugging
+    const hexHead = data.slice(0, Math.min(16, data.length)).toString('hex');
+    return { type: 'error', code: -1, message: `Payload size too large: ${payloadSize}, byte0=${byte0} byte1=${byte1} headerSize=${headerSize} hasSeq=${hasSequence} dataLen=${data.length} hex=${hexHead}` };
   }
 
   if (data.length < offset + payloadSize) {
@@ -99,7 +111,7 @@ export function parseServerResponse(data: Buffer): ParsedResponse {
     return {
       type: 'error',
       code: payloadJson.code || payloadJson.status_code || -1,
-      message: payloadJson.message || payloadJson.error || 'Unknown error'
+      message: payloadJson.message || payloadJson.error || JSON.stringify(payloadJson)
     };
   }
   return { type: 'error', code: -1, message: `Unknown message type: ${msgType}` };

@@ -126,7 +126,8 @@ cloud-build:
 cloud-sync: cloud-build
 	@echo "=== Syncing to $(SSH_TARGET):$(REMOTE_DIR) ==="
 	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/logs"
-	rsync -avz --delete --exclude='node_modules' --exclude='recordings/*' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
+	rsync -avz --delete --exclude='node_modules' --exclude='recordings/*' --exclude='logs/' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
+	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/logs"
 	@echo "Sync complete"
 
 cloud-deps:

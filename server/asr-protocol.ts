@@ -81,8 +81,11 @@ export function parseServerResponse(data: Buffer): ParsedResponse {
 
   offset += 4;
 
-  if (payloadSize > 10 * 1024 * 1024) {
-    return { type: 'error', code: -1, message: `Payload size too large: ${payloadSize}` };
+  // Allow up to 1MB for payload (Doubao returns JSON results, never large)
+  if (payloadSize > 1 * 1024 * 1024) {
+    // Log diagnostic info for debugging
+    const hexHead = data.slice(0, Math.min(16, data.length)).toString('hex');
+    return { type: 'error', code: -1, message: `Payload size too large: ${payloadSize}, byte0=${byte0} byte1=${byte1} headerSize=${headerSize} hasSeq=${hasSequence} dataLen=${data.length} hex=${hexHead}` };
   }
 
   if (data.length < offset + payloadSize) {

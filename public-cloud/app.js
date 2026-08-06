@@ -28,7 +28,6 @@
   var finalizedUtterances = [];
   var partialText = '';
   var recordingStartAt = 0;
-  var captionMgr = null;
 
   var micBtn = null;
   var statusText = null;
@@ -273,22 +272,6 @@
     connectionStatus.appendChild(dbRow);
 
     metricsStatus.innerHTML = '';
-
-    var logidRow = document.createElement('div');
-    logidRow.className = 'kv-row';
-    var logidKey = document.createElement('span');
-    logidKey.className = 'kv-key';
-    logidKey.textContent = 'LogID';
-    var logidVal = document.createElement('span');
-    logidVal.className = 'kv-val';
-    logidVal.style.fontFamily = 'monospace';
-    logidVal.style.fontSize = '11px';
-    logidVal.style.wordBreak = 'break-all';
-    logidVal.textContent = stats.logid || '-';
-    logidVal.title = stats.logid || '';
-    logidRow.appendChild(logidKey);
-    logidRow.appendChild(logidVal);
-    metricsStatus.appendChild(logidRow);
 
     var firstLatRow = document.createElement('div');
     firstLatRow.className = 'kv-row';
@@ -778,430 +761,6 @@
     return colors[idx % colors.length];
   }
 
-  // ========== 单行字幕管理器 ==========
-  var CAPTION_STATES = { ACTIVE: 'active', COOLING: 'cooling', LOCKED: 'locked' };
-  // 不再限制历史数量，全量保留；只在新会话reset时清空
-
-  function SingleLineCaptionManager(container, options) {
-    this.container = container;
-    this.current = null;
-    this.history = [];
-    this.coolingTimer = null;
-    this.silenceCheckTimer = null;
-    this.speakerLabels = {}; // speakerId -> label
-    this.stats = { pureAppends: 0, corrections: 0, ignoredLate: 0 };
-    // 二遍模式：true=等待definite触发锁定，false=一遍模式靠停顿检测触发
-    this.twoPassMode = !options || options.twoPassMode !== false;
-    // VAD判停窗口（ms），一遍模式下用这个+缓冲来判断停顿
-    this.vadWindowMs = (options && options.vadWindowMs) || 200;
-  }
-
-  SingleLineCaptionManager.prototype.updateOptions = function(options) {
-    if (!options) return;
-    if (options.twoPassMode !== undefined) this.twoPassMode = options.twoPassMode !== false;
-    if (options.vadWindowMs) this.vadWindowMs = options.vadWindowMs;
-  };
-
-  SingleLineCaptionManager.prototype.getSpeakerLabel = function(speakerId) {
-    if (this.speakerLabels[speakerId]) return this.speakerLabels[speakerId];
-    return speakerBindings[speakerId] ? speakerBindings[speakerId].username : ('说话人' + (speakerId + 1));
-  };
-
-  SingleLineCaptionManager.prototype.updateSpeakerLabel = function(speakerId, label, color) {
-    this.speakerLabels[speakerId] = label;
-    if (this.current && this.current.speakerId === speakerId) {
-      this.current.badgeEl.textContent = label;
-      if (color) this.current.badgeEl.style.background = color;
-      this.current.badgeEl.classList.add('badge-update');
-      var self = this;
-      setTimeout(function() {
-        if (self.current && self.current.badgeEl) {
-          self.current.badgeEl.classList.remove('badge-update');
-        }
-      }, 400);
-    }
-    for (var i = 0; i < this.history.length; i++) {
-      if (this.history[i].speakerId === speakerId && this.history[i].badgeEl) {
-        this.history[i].badgeEl.textContent = label;
-        if (color) this.history[i].badgeEl.style.background = color;
-      }
-    }
-  };
-
-  SingleLineCaptionManager.prototype.reset = function() {
-    clearTimeout(this.coolingTimer);
-    clearTimeout(this.silenceCheckTimer);
-    if (this.current && this.current.el && this.current.el.parentNode) {
-      this.current.el.remove();
-    }
-    for (var i = 0; i < this.history.length; i++) {
-      if (this.history[i].el) this.history[i].el.remove();
-    }
-    this.current = null;
-    this.history = [];
-    this.stats = { pureAppends: 0, corrections: 0, ignoredLate: 0 };
-    this._showPlaceholder();
-  };
-
-  SingleLineCaptionManager.prototype._scrollToBottom = function() {
-    var self = this;
-    requestAnimationFrame(function() {
-      self.container.scrollTop = self.container.scrollHeight;
-    });
-  };
-
-  SingleLineCaptionManager.prototype._showPlaceholder = function() {
-    this.container.innerHTML = '<span class="placeholder">识别结果将在这里显示...</span>';
-  };
-
-  SingleLineCaptionManager.prototype._hidePlaceholder = function() {
-    var ph = this.container.querySelector('.placeholder');
-    if (ph) ph.remove();
-  };
-
-  SingleLineCaptionManager.prototype.onUtteranceUpdate = function(utt) {
-    var startTime = utt.start_time != null ? utt.start_time : (utt.startTime || 0);
-    var endTime = utt.end_time != null ? utt.end_time : (utt.endTime || startTime + 1000);
-    var text = utt.text || '';
-    var definite = utt.definite === true;
-    var speakerId = extractSpeakerId(utt);
-    if (speakerId < 0) speakerId = 0;
-
-    if (!text && !definite) return;
-
-    var isNewUtterance = !this.current || startTime !== this.current.startTime;
-    var isSpeakerChanged = this.current && speakerId !== this.current.speakerId;
-
-    if (isNewUtterance || isSpeakerChanged) {
-      if (this.current) {
-        addEvent('🔒 锁定字幕行 (原因: ' + (isSpeakerChanged ? 'speaker_changed' : 'new_utterance') + ')');
-      }
-      this._lockCurrent();
-      this._pushNewline(startTime, endTime, text, definite, speakerId);
-      return;
-    }
-
-    if (this.current.status === CAPTION_STATES.LOCKED) {
-      return;
-    }
-
-    if (definite && this.current.status === CAPTION_STATES.ACTIVE) {
-      addEvent('✅ 收到definite，进入800ms冷却期');
-      this.current.status = CAPTION_STATES.COOLING;
-      this.current.el.className = 'caption-current status-cooling';
-      this._startCoolingTimer();
-    }
-
-    // 一遍模式：不等待definite，通过end_time停滞检测停顿来触发冷却
-    if (!this.twoPassMode && this.current.status === CAPTION_STATES.ACTIVE) {
-      this._resetSilenceCheck();
-    }
-
-    var result = this._applyTextUpdate(text);
-
-    if (result.type === 'ignored_late') {
-      this.stats.ignoredLate++;
-      addEvent('🚫 大修正过晚(' + result.elapsed + 'ms)，忽略更新');
-      return;
-    }
-
-    this.current.text = text;
-    this.current.endTime = endTime;
-    this.current.lastUpdateAt = Date.now();
-  };
-
-  SingleLineCaptionManager.prototype._applyTextUpdate = function(newText) {
-    var oldText = this.current.text;
-    if (oldText === newText) return { type: 'no_change' };
-
-    var prefixLen = 0;
-    var minLen = Math.min(oldText.length, newText.length);
-    while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) prefixLen++;
-
-    var suffixLen = 0;
-    var maxSuf = Math.min(oldText.length - prefixLen, newText.length - prefixLen);
-    while (suffixLen < maxSuf &&
-           oldText[oldText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
-      suffixLen++;
-    }
-
-    var oldMid = oldText.substring(prefixLen, oldText.length - suffixLen);
-    var newMid = newText.substring(prefixLen, newText.length - suffixLen);
-    var isPureAppend = prefixLen >= oldText.length && suffixLen === 0;
-
-    if (isPureAppend) {
-      var added = newText.substring(oldText.length);
-      this.stats.pureAppends++;
-      this._renderAppend(added);
-      return { type: 'pure_append' };
-    }
-
-    var isSmall = oldMid.length <= 3 && newMid.length <= 3;
-    if (isSmall) {
-      this.stats.corrections++;
-      addEvent('🔄 小修正: "' + oldMid + '" → "' + newMid + '"');
-      this._renderCorrection(prefixLen, oldMid, newMid, newText);
-      return { type: 'small_correction' };
-    } else {
-      var elapsed = this._getCoolingElapsed();
-      var willIgnore = this.current.status === CAPTION_STATES.COOLING && elapsed > 400;
-      addEvent('⚠️ 大修正 (' + oldMid.length + '字→' + newMid.length + '字)' + (willIgnore ? ' [忽略]' : ''));
-      if (willIgnore) return { type: 'ignored_late', elapsed: elapsed };
-      this.stats.corrections++;
-      this._renderFullUpdate(newText);
-      return { type: 'large_correction' };
-    }
-  };
-
-  SingleLineCaptionManager.prototype._renderAppend = function(text) {
-    var textEl = this.current.textEl;
-    var cursor = this.current.cursorEl;
-    var chars = Array.from(text);
-    var i = 0;
-    var batchSize = Math.max(1, Math.ceil(chars.length / 4));
-
-    function appendNext() {
-      if (i >= chars.length || !this.current) return;
-      var batch = chars.slice(i, i + batchSize).join('');
-      var node = document.createTextNode(batch);
-      textEl.insertBefore(node, cursor);
-      i += batchSize;
-      if (i < chars.length) {
-        requestAnimationFrame(appendNext.bind(this));
-      }
-    }
-    requestAnimationFrame(appendNext.bind(this));
-  };
-
-  SingleLineCaptionManager.prototype._renderCorrection = function(prefixLen, oldMid, newMid, fullText) {
-    var textEl = this.current.textEl;
-    var cursor = this.current.cursorEl;
-
-    var prefix = fullText.substring(0, prefixLen);
-    var corrected = newMid;
-    var suffix = fullText.substring(prefixLen + newMid.length);
-
-    textEl.innerHTML = '';
-    textEl.appendChild(document.createTextNode(prefix));
-
-    if (corrected) {
-      var span = document.createElement('span');
-      span.className = 'caption-correction';
-      span.textContent = corrected;
-      textEl.appendChild(span);
-      setTimeout(function() {
-        span.classList.add('fade-out');
-        setTimeout(function() {
-          if (span.parentNode) {
-            var t = document.createTextNode(corrected);
-            span.parentNode.replaceChild(t, span);
-          }
-        }, 600);
-      }, 150);
-    }
-
-    textEl.appendChild(document.createTextNode(suffix));
-    textEl.appendChild(cursor);
-  };
-
-  SingleLineCaptionManager.prototype._renderFullUpdate = function(newText) {
-    var textEl = this.current.textEl;
-    var cursor = this.current.cursorEl;
-    var el = this.current.el;
-    el.style.opacity = '0.4';
-    setTimeout(function() {
-      if (!this.current) return;
-      textEl.innerHTML = '';
-      textEl.appendChild(document.createTextNode(newText));
-      textEl.appendChild(cursor);
-      el.style.opacity = '1';
-    }.bind(this), 120);
-  };
-
-  SingleLineCaptionManager.prototype._startCoolingTimer = function() {
-    clearTimeout(this.coolingTimer);
-    this.current.coolingStartedAt = Date.now();
-    var self = this;
-    this.coolingTimer = setTimeout(function() {
-      if (self.current && self.current.status === CAPTION_STATES.COOLING) {
-        self.current.status = CAPTION_STATES.LOCKED;
-        self.current.el.className = 'caption-current status-locked';
-        self._removeCursor();
-        addEvent('🔒 冷却结束，字幕锁定');
-      }
-    }, 800);
-  };
-
-  // 一遍模式下的停顿检测：每次新更新时重置定时器，如果超过vadWindowMs+500ms没有新更新则进入cooling
-  SingleLineCaptionManager.prototype._resetSilenceCheck = function() {
-    clearTimeout(this.silenceCheckTimer);
-    var self = this;
-    // 超时时间 = VAD窗口 + 500ms缓冲
-    var silenceTimeout = this.vadWindowMs + 500;
-    this.silenceCheckTimer = setTimeout(function() {
-      if (self.current && self.current.status === CAPTION_STATES.ACTIVE) {
-        addEvent('⏱ 检测到停顿(' + silenceTimeout + 'ms无更新)，进入冷却期');
-        self.current.status = CAPTION_STATES.COOLING;
-        self.current.el.className = 'caption-current status-cooling';
-        self._startCoolingTimer();
-      }
-    }, silenceTimeout);
-  };
-
-  SingleLineCaptionManager.prototype._getCoolingElapsed = function() {
-    if (!this.current || this.current.status !== CAPTION_STATES.COOLING) return 0;
-    return Date.now() - this.current.coolingStartedAt;
-  };
-
-  SingleLineCaptionManager.prototype._removeCursor = function() {
-    if (this.current && this.current.cursorEl && this.current.cursorEl.parentNode) {
-      this.current.cursorEl.remove();
-    }
-  };
-
-  SingleLineCaptionManager.prototype._lockCurrent = function() {
-    if (!this.current) return;
-    clearTimeout(this.coolingTimer);
-    clearTimeout(this.silenceCheckTimer);
-
-    if (this.current.status !== CAPTION_STATES.LOCKED) {
-      this.current.status = CAPTION_STATES.LOCKED;
-      this._removeCursor();
-    }
-
-    // 注意：不再在这里操作DOM添加历史行。历史由syncHistory()统一从finalizedUtterances全量渲染。
-    // 只移除当前字幕元素
-    if (this.current.el && this.current.el.parentNode) {
-      this.current.el.remove();
-    }
-
-    this.current = null;
-  };
-
-  // 从 finalizedUtterances 全量重建历史字幕区域，确保不丢失任何一行
-  SingleLineCaptionManager.prototype.syncHistory = function(finalizedUtterances) {
-    var historyContainer = this.container.querySelector('.caption-history');
-    if (!historyContainer) {
-      historyContainer = document.createElement('div');
-      historyContainer.className = 'caption-history';
-      this.container.insertBefore(historyContainer, this.container.firstChild);
-    }
-
-    // 清空旧的历史DOM
-    historyContainer.innerHTML = '';
-    this.history = [];
-
-    for (var i = 0; i < finalizedUtterances.length; i++) {
-      var utt = finalizedUtterances[i];
-      var text = (utt.text || '').trim();
-      if (!text) continue;
-
-      var speakerId = extractSpeakerId(utt);
-      if (speakerId < 0) speakerId = 0;
-
-      var historyLine = document.createElement('div');
-      historyLine.className = 'history-line';
-
-      var badge = document.createElement('span');
-      badge.className = 'badge';
-      var color = getSpeakerColor(speakerId);
-      if (speakerBindings[speakerId] && speakerBindings[speakerId].color) {
-        color = speakerBindings[speakerId].color;
-      }
-      badge.style.background = color;
-      badge.textContent = this.getSpeakerLabel(speakerId);
-
-      var textSpan = document.createElement('span');
-      textSpan.className = 'utt-text';
-      textSpan.textContent = text;
-
-      historyLine.appendChild(badge);
-      historyLine.appendChild(textSpan);
-      historyContainer.appendChild(historyLine);
-
-      this.history.push({
-        startTime: utt.start_time || utt.startTime || 0,
-        speakerId: speakerId,
-        text: text,
-        el: historyLine,
-        badgeEl: badge
-      });
-    }
-
-    this._scrollToBottom();
-  };
-
-  SingleLineCaptionManager.prototype._pushNewline = function(startTime, endTime, text, definite, speakerId) {
-    this._hidePlaceholder();
-
-    // 确保有历史容器
-    var historyContainer = this.container.querySelector('.caption-history');
-    if (!historyContainer) {
-      historyContainer = document.createElement('div');
-      historyContainer.className = 'caption-history';
-      this.container.insertBefore(historyContainer, this.container.firstChild);
-    }
-
-    if (this.current && this.current.el && this.current.el.parentNode) {
-      this.current.el.remove();
-    }
-
-    var line = document.createElement('div');
-    line.className = 'caption-current status-' + (definite ? 'cooling' : 'active');
-
-    var badge = document.createElement('span');
-    badge.className = 'speaker-badge' + (speakerBindings[speakerId] ? ' speaker-identified' : ' speaker-unidentified');
-    var color = getSpeakerColor(speakerId);
-    if (speakerBindings[speakerId] && speakerBindings[speakerId].color) {
-      color = speakerBindings[speakerId].color;
-    }
-    badge.style.background = color;
-    badge.textContent = this.getSpeakerLabel(speakerId);
-    badge.dataset.speakerId = speakerId;
-    if (voiceprintEnabled) {
-      badge.style.cursor = 'pointer';
-      badge.title = '点击手动绑定说话人';
-      badge.onclick = (function(spkId) {
-        return function() { showManualBindDialog(spkId); };
-      })(speakerId);
-    }
-
-    var wrapper = document.createElement('div');
-    wrapper.className = 'caption-text-wrapper';
-
-    var textEl = document.createElement('span');
-    textEl.className = 'caption-text';
-
-    var cursor = document.createElement('span');
-    cursor.className = 'caption-cursor';
-
-    textEl.appendChild(document.createTextNode(text));
-    if (!definite) textEl.appendChild(cursor);
-    wrapper.appendChild(textEl);
-    line.appendChild(badge);
-    line.appendChild(wrapper);
-    this.container.appendChild(line);
-
-    this.current = {
-      startTime: startTime,
-      endTime: endTime,
-      speakerId: speakerId,
-      text: text,
-      status: definite ? CAPTION_STATES.COOLING : CAPTION_STATES.ACTIVE,
-      el: line,
-      badgeEl: badge,
-      textEl: textEl,
-      cursorEl: cursor,
-      coolingStartedAt: definite ? Date.now() : null
-    };
-
-    if (definite) {
-      this._startCoolingTimer();
-    }
-
-    this._scrollToBottom();
-  };
-
   function extractSpeakerId(utt) {
     if (utt == null) return -1;
     var v = utt.speaker_id != null ? utt.speaker_id : (utt.speakerId != null ? utt.speakerId : utt.speaker);
@@ -1296,12 +855,6 @@
   }
 
   function renderTranscript() {
-    if (captionMgr) {
-      if (currentState === 'idle' && (!captionMgr.current || captionMgr.current.text === '') && captionMgr.history.length === 0) {
-        captionMgr._showPlaceholder();
-      }
-      return;
-    }
     resultArea.innerHTML = '';
 
     var grouped = groupUtterancesBySpeaker(finalizedUtterances);
@@ -1348,18 +901,9 @@
           finalizedUtterances = [{ text: text, definite: true, start_time: 0 }];
         }
         partialText = '';
-        // 锁定当前字幕
-        if (captionMgr && captionMgr.current) {
-          captionMgr._lockCurrent();
-        }
       } else {
         partialText = text;
-        if (captionMgr && text) {
-          captionMgr.onUtteranceUpdate({ text: text, definite: false, start_time: Date.now() });
-        }
       }
-      // 全量同步历史字幕
-      if (captionMgr) captionMgr.syncHistory(finalizedUtterances);
       renderTranscript();
       renderStats();
       return;
@@ -1371,7 +915,6 @@
     }
 
     var newPartialText = '';
-    var lastUtt = null;
     for (var i = 0; i < utts.length; i++) {
       var u = utts[i];
       var t = (u.text || '').trim();
@@ -1388,20 +931,11 @@
             }
           }
         }
-        if (captionMgr && t) {
-          captionMgr.onUtteranceUpdate(u);
-        }
       } else {
         if (t) {
           newPartialText += t;
-          lastUtt = u;
         }
       }
-    }
-
-    // 非definite的最后一个utt喂给captionMgr（partial更新）
-    if (captionMgr && lastUtt) {
-      captionMgr.onUtteranceUpdate(lastUtt);
     }
 
     finalizedUtterances.sort(function(a, b) { return (a.start_time || 0) - (b.start_time || 0); });
@@ -1411,23 +945,9 @@
         finalizedUtterances = [{ text: text, definite: true, start_time: 0 }];
       }
       partialText = '';
-      // 识别结束，锁定最后一行
-      if (captionMgr) {
-        if (captionMgr.current) {
-          if (captionMgr.current.status !== CAPTION_STATES.LOCKED) {
-            captionMgr.current.status = CAPTION_STATES.LOCKED;
-            captionMgr._removeCursor();
-            captionMgr._lockCurrent();
-          }
-        }
-        addEvent('🔒 识别结束，字幕锁定');
-      }
     } else {
       partialText = newPartialText || text;
     }
-
-    // 全量同步历史字幕（从finalizedUtterances重建，确保不丢失任何一行）
-    if (captionMgr) captionMgr.syncHistory(finalizedUtterances);
 
     renderTranscript();
     renderStats();
@@ -1438,14 +958,12 @@
     stats.lastLatency = null;
     stats.audioDurationMs = 0;
     stats.lastError = '';
-    stats.logid = '';
     stats.firstAudioSentAt = 0;
     stats.lastSendAt = 0;
     stats.firstResultReceived = false;
     stats.events = [];
     finalizedUtterances = [];
     partialText = '';
-    if (captionMgr) captionMgr.reset();
   }
 
   function sendAudioChunk() {
@@ -1469,8 +987,9 @@
 
     var CHUNK_SIZE = 6400;
     for (var i = 0; i < merged.length; i += CHUNK_SIZE) {
-      var chunk = merged.slice(i, i + CHUNK_SIZE);
-      ws.send(chunk.buffer);
+      var end = Math.min(i + CHUNK_SIZE, merged.length);
+      var chunk = new Uint8Array(merged.buffer, i + merged.byteOffset, end - i);
+      ws.send(chunk);
     }
     stats.audioDurationMs += 200;
     if (stats.firstAudioSentAt === 0) {
@@ -1752,7 +1271,7 @@
         voiceprintEnabled = !!msg.voiceprintEnabled;
         speakerBindings = {};
         speakerMatching = {};
-        addEvent('豆包已连接' + (voiceprintEnabled ? '（声纹自动识别已启用）' : '') + (stats.logid ? ' [LogID: ' + stats.logid + ']' : ''));
+        addEvent('豆包已连接' + (voiceprintEnabled ? '（声纹自动识别已启用）' : ''));
         if (recordingStartAt > 0 || currentState === 'connecting') {
           startAudioSending();
         }
@@ -1765,18 +1284,7 @@
         if (msg.appliedConfig) {
           appliedConfig = JSON.parse(JSON.stringify(msg.appliedConfig));
           renderAppliedConfig();
-          // 更新字幕管理器的模式配置（一遍/二遍模式）
-          if (captionMgr) {
-            captionMgr.updateOptions({
-              twoPassMode: appliedConfig.enable_two_pass !== false,
-              vadWindowMs: appliedConfig.end_window_size || 200
-            });
-          }
         }
-        renderStats();
-      } else if (msg.type === 'logid_update') {
-        stats.logid = msg.logid || '';
-        addEvent('LogID 已更新: ' + stats.logid);
         renderStats();
       } else if (msg.type === 'speaker_matching') {
         speakerMatching[msg.speakerId] = true;
@@ -1786,9 +1294,6 @@
         speakerMatching[msg.speakerId] = false;
         speakerBindings[msg.speakerId] = { username: msg.username, color: msg.color, score: msg.score };
         addEvent('说话人 ' + (msg.speakerId + 1) + ' 已识别为：' + msg.username + '（置信度 ' + msg.score + '）');
-        if (captionMgr) {
-          captionMgr.updateSpeakerLabel(msg.speakerId, msg.username, msg.color);
-        }
         renderTranscript();
       } else if (msg.type === 'speaker_match_failed') {
         speakerMatching[msg.speakerId] = false;
@@ -1812,11 +1317,8 @@
       } else if (msg.type === 'error') {
         stats.doubaoStatus = 'error';
         stats.lastError = msg.message;
-        if (msg.logid) {
-          stats.logid = msg.logid;
-        }
-        addEvent('错误: ' + msg.message + (stats.logid ? ' [LogID: ' + stats.logid + ']' : ''));
-        showError('识别错误(' + msg.code + '): ' + msg.message + (stats.logid ? ' (LogID: ' + stats.logid + ')' : ''));
+        addEvent('错误: ' + msg.message);
+        showError('识别错误(' + msg.code + '): ' + msg.message);
         setStatus('idle');
         stopAudioSending(false);
         disableConfigForm(false);
@@ -1985,12 +1487,7 @@
     addEvent('停止录音');
 
     if (!partialText && finalizedUtterances.length === 0) {
-      if (captionMgr) {
-        captionMgr._hidePlaceholder();
-        captionMgr.container.innerHTML = '<span class="loading">识别中...</span>';
-      } else {
-        resultArea.innerHTML = '<span class="loading">识别中...</span>';
-      }
+      resultArea.innerHTML = '<span class="loading">识别中...</span>';
     }
 
     sendAudioChunk();
@@ -2542,8 +2039,6 @@
 
     setStatus('idle');
     renderStats();
-    // 初始化单行字幕管理器
-    captionMgr = new SingleLineCaptionManager(resultArea);
     renderTranscript();
     renderSummaryState();
 
