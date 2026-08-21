@@ -7,7 +7,7 @@
     "build": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && cp inventory.local.env dist/inventory.local.env",
     "start": "node dist/server/index.js",
     "dev:cloud": "ts-node server-cloud/index.ts",
-    "build:cloud": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && mkdir -p dist/public-cloud && cp public-cloud/* dist/public-cloud/ && mkdir -p dist/recordings && cp inventory.local.env dist/inventory.local.env",
+    "build:cloud": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && mkdir -p dist/public-cloud && cp public-cloud/* dist/public-cloud/ && mkdir -p dist/recordings && mkdir -p dist/uploads && mkdir -p dist/transcripts && mkdir -p dist/voiceprints && cp inventory.local.env dist/inventory.local.env",
     "start:cloud": "cd dist && CLOUD_PORT=3001 node server-cloud/index.js"
   },
   "dependencies": {

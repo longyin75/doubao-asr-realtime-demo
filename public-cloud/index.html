@@ -4,11 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>豆包语音 ASR 实时识别（云端中转版）</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260821a">
 </head>
 <body>
   <header class="app-header">
     <h1>豆包语音 ASR 实时识别</h1>
+    <div class="header-actions">
+      <button type="button" class="btn btn-secondary btn-sm" id="voiceprintBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M12 3c-1.1 0-2 .9-2 2v6c0 1.1.9 2 2 2s2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14c-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-2.08c3.39-.49 6-3.39 6-6.92h-2c0 2.76-2.24 5-5 5z"/></svg>
+        声纹管理
+      </button>
+    </div>
   </header>
   <main class="app-main">
     <aside class="panel panel-left">
@@ -58,6 +64,25 @@
         <span class="placeholder">识别结果将在这里显示...</span>
       </div>
       <div id="recordingPlayerContainer" style="margin-top: 16px;"></div>
+      <div class="auc-toolbar" id="aucToolbar" hidden>
+        <button type="button" class="btn btn-secondary btn-sm" id="aucConfigBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          设置参数
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="aucTranscribeBtn" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+          录音转写
+        </button>
+        <span class="auc-hint" id="aucHint">录音结束后可提交文件识别</span>
+      </div>
+      <div class="auc-results-section" id="aucResultsSection" hidden>
+        <div class="auc-results-header">
+          <span class="auc-results-title">转写结果</span>
+        </div>
+        <div class="auc-results-list" id="aucResultsList">
+          <span class="placeholder">暂无转写结果</span>
+        </div>
+      </div>
       <div class="error-area" id="errorArea" hidden></div>
       <p class="hint-text">点击麦克风按钮开始说话，再次点击停止</p>
       <div class="summary-section" id="summarySection" hidden>
@@ -176,6 +201,237 @@
     </div>
   </div>
 
-  <script src="app.js" defer></script>
+  <!-- 声纹管理 Modal -->
+  <div class="modal-overlay" id="voiceprintModalOverlay" hidden>
+    <div class="modal-dialog modal-dialog-lg" id="voiceprintModal" role="dialog" aria-modal="true" aria-labelledby="vpModalTitle">
+      <div class="modal-header">
+        <h3 class="modal-title" id="vpModalTitle">声纹管理</h3>
+        <button type="button" class="modal-close" id="vpModalCloseBtn" aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">注册后声纹永久保存在字节服务端，可用于实时说话人识别。建议音频时长 3-10 秒，环境安静，单人发音。</p>
+        <!-- 声纹列表 -->
+        <div class="vp-section">
+          <div class="vp-section-header">
+            <span class="vp-section-title">已注册声纹列表</span>
+            <button type="button" class="btn btn-text btn-sm" id="vpRefreshBtn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+              刷新
+            </button>
+          </div>
+          <div class="vp-list-table-wrap">
+            <table class="vp-list-table">
+              <thead>
+                <tr><th>序号</th><th>SpeakerName</th><th>SpeakId</th><th style="width:70px">操作</th></tr>
+              </thead>
+              <tbody id="vpListBody">
+                <tr><td colspan="4" class="vp-empty">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <!-- 注册新声纹 -->
+        <div class="vp-section">
+          <div class="vp-section-header">
+            <span class="vp-section-title">注册新声纹</span>
+          </div>
+          <div class="vp-form-row">
+            <label class="vp-label" for="vpSpeakerName">说话人名称</label>
+            <input type="text" id="vpSpeakerName" class="vp-input" placeholder="2-64 字符，如：张三" maxlength="64">
+          </div>
+          <div class="vp-form-row">
+            <label class="vp-label">音频来源</label>
+            <div class="vp-radio-group">
+              <label class="vp-radio">
+                <input type="radio" name="vpSource" value="upload" checked>
+                <span>上传音频文件</span>
+              </label>
+              <label class="vp-radio">
+                <input type="radio" name="vpSource" value="record">
+                <span>现场录音</span>
+              </label>
+            </div>
+          </div>
+          <!-- 上传区域 -->
+          <div class="vp-upload-area" id="vpUploadArea">
+            <div class="vp-upload-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+            </div>
+            <p class="vp-upload-text">点击选择文件或拖拽到此区域</p>
+            <p class="vp-upload-hint">支持 .wav .mp3 .m4a .webm .ogg，最大 10MB</p>
+            <input type="file" id="vpFileInput" accept=".wav,.mp3,.m4a,.webm,.ogg" hidden>
+          </div>
+          <div class="vp-file-selected" id="vpFileSelected" hidden>
+            <span class="vp-file-name" id="vpFileName"></span>
+            <button type="button" class="vp-file-remove" id="vpFileRemoveBtn">&times;</button>
+          </div>
+          <!-- 录音区域 - 朗读引导模式 -->
+          <div class="vp-record-area" id="vpRecordArea" hidden>
+            <!-- 朗读引导界面 -->
+            <div class="vp-read-guide" id="vpReadGuide">
+              <p class="vp-read-title">请大声朗读下面文案</p>
+              <div class="vp-read-text" id="vpReadText">
+                贝加尔湖是世界上最古老、最深的淡水湖泊，位于俄罗斯西伯利亚地区，湖水极其清澈透明，是世界上最纯净的湖泊之一。它蓄水量约占全球地表淡水的五分之一，由地壳断裂陷落形成。湖形狭长似新月，仅有安加拉河一条外流河。湖中拥有贝加尔海豹等大量独有生物，四季景色迥异，已被列入世界自然遗产名录
+              </div>
+              <button type="button" class="vp-start-record-btn" id="vpStartRecordBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                开始录音
+              </button>
+            </div>
+            <!-- 录音中界面 -->
+            <div class="vp-recording-ui" id="vpRecordingUI" hidden>
+              <p class="vp-read-title">请大声朗读下面文案</p>
+              <div class="vp-read-text vp-read-text-active">
+                贝加尔湖是世界上最古老、最深的淡水湖泊，位于俄罗斯西伯利亚地区，湖水极其清澈透明，是世界上最纯净的湖泊之一。它蓄水量约占全球地表淡水的五分之一，由地壳断裂陷落形成。湖形狭长似新月，仅有安加拉河一条外流河。湖中拥有贝加尔海豹等大量独有生物，四季景色迥异，已被列入世界自然遗产名录
+              </div>
+              <!-- 波形可视化区域 -->
+              <div class="vp-waveform-container">
+                <canvas id="vpWaveformCanvas" class="vp-waveform-canvas"></canvas>
+              </div>
+              <button type="button" class="vp-finish-btn" id="vpFinishBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                完成录制
+              </button>
+              <div class="vp-record-bottom">
+                <span class="vp-record-timer" id="vpRecordTimer">00:00</span>
+                <button type="button" class="vp-rerecord-btn" id="vpRerecordBtn">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="vertical-align:-4px;margin-right:4px"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                  重新录制
+                </button>
+              </div>
+            </div>
+          </div>
+          <!-- 预览区域 -->
+          <audio id="vpPreviewAudio" controls style="display:none;margin-top:10px;width:100%"></audio>
+          <div class="vp-status" id="vpStatus" hidden></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="vpModalCancelBtn">关闭</button>
+          <button type="button" class="btn btn-primary" id="vpRegisterBtn" disabled>注册声纹</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 录音文件识别参数配置 Modal -->
+  <div class="modal-overlay" id="aucConfigModalOverlay" hidden>
+    <div class="modal-dialog modal-dialog-lg" id="aucConfigModal" role="dialog" aria-modal="true" aria-labelledby="aucModalTitle">
+      <div class="modal-header">
+        <h3 class="modal-title" id="aucModalTitle">⚙️ 录音文件识别参数设置</h3>
+        <button type="button" class="modal-close" id="aucModalCloseBtn" aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="auc-config-section">
+          <div class="auc-config-label">模型版本</div>
+          <div class="auc-radio-group">
+            <label class="auc-radio">
+              <input type="radio" name="aucModelVersion" value="2.0" checked>
+              <span>2.0（推荐，识别率更高）</span>
+            </label>
+            <label class="auc-radio">
+              <input type="radio" name="aucModelVersion" value="1.0">
+              <span>1.0（兼容旧版）</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="auc-config-section">
+          <div class="auc-config-label">识别语种</div>
+          <select id="aucLanguage" class="auc-select">
+            <option value="">自动检测（中英多方言）</option>
+            <option value="zh-CN">中文（普通话）</option>
+            <option value="en-US">英语</option>
+            <option value="ja-JP">日语</option>
+            <option value="ko-KR">韩语</option>
+            <option value="yue">粤语</option>
+            <option value="zh-Shanghai">上海话</option>
+          </select>
+        </div>
+
+        <div class="auc-config-section">
+          <div class="auc-config-label">识别增强</div>
+          <div class="auc-checkbox-group">
+            <label class="auc-checkbox">
+              <input type="checkbox" id="aucEnableItn" checked>
+              <span>逆文本规整（ITN）- 口语转书面语/数字</span>
+            </label>
+            <label class="auc-checkbox">
+              <input type="checkbox" id="aucEnablePunc" checked>
+              <span>自动加标点</span>
+            </label>
+            <label class="auc-checkbox">
+              <input type="checkbox" id="aucEnableDdc">
+              <span>顺滑去语气词（DDC）</span>
+            </label>
+            <label class="auc-checkbox">
+              <input type="checkbox" id="aucShowUtterances" checked>
+              <span>输出分句信息</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="auc-config-section">
+          <div class="auc-config-label">说话人分离</div>
+          <label class="auc-checkbox">
+            <input type="checkbox" id="aucEnableSpeaker" checked>
+            <span>启用说话人分离</span>
+          </label>
+          <div class="auc-sub-options" id="aucSpeakerOptions">
+            <div class="auc-radio-group">
+              <label class="auc-radio">
+                <input type="radio" name="aucSsdVersion" value="200">
+                <span>200（短音频 &lt; 3分钟）</span>
+              </label>
+              <label class="auc-radio">
+                <input type="radio" name="aucSsdVersion" value="300" checked>
+                <span>300（会议场景，推荐）</span>
+              </label>
+            </div>
+            <div class="auc-radio-group" id="aucSsdModeGroup" style="display:none;">
+              <label class="auc-radio">
+                <input type="radio" name="aucSsdMode" value="0" checked>
+                <span>普通模式</span>
+              </label>
+              <label class="auc-radio">
+                <input type="radio" name="aucSsdMode" value="1">
+                <span>聚类模式（长音频非会议）</span>
+              </label>
+            </div>
+            <div class="auc-slider-row">
+              <span class="auc-slider-label">VAD静音阈值：</span>
+              <input type="range" id="aucEndWindowSize" min="300" max="5000" step="100" value="800" class="auc-slider">
+              <span class="auc-slider-value" id="aucEndWindowValue">800 ms</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="auc-config-section">
+          <div class="auc-config-label">声纹匹配</div>
+          <label class="auc-checkbox">
+            <input type="checkbox" id="aucUseVoiceprints">
+            <span>使用已注册声纹匹配说话人姓名</span>
+          </label>
+          <div class="auc-voiceprint-list" id="aucVoiceprintList" style="margin-top:8px;">
+            <div class="vp-empty">加载中...</div>
+          </div>
+          <p class="auc-config-hint">选中的声纹将用于匹配说话人，匹配成功后自动标注姓名；最多选择50个。</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="aucResetBtn">恢复默认</button>
+          <button type="button" class="btn btn-primary" id="aucSaveBtn">保存设置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260821a" defer></script>
 </body>
 </html>

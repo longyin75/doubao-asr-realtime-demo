@@ -7,6 +7,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         CLOUD_PORT: 3001,
+        VOICEPRINT_ENABLED: 'true',
       },
       instances: 1,
       autorestart: true,

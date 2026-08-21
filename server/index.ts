@@ -344,12 +344,28 @@ wss.on('connection', (clientWs: WebSocket) => {
     }
     console.log(`[${requestId}] Full client request payload: ${JSON.stringify(payload)}`);
 
+    // 构建鉴权 headers，按飞书文档支持两种方式：
+    // 方式一：X-Api-Key
+    // 方式二：X-Api-App-Id + X-Api-Access-Key
+    const authHeaders: Record<string, string> = {
+      'X-Api-Resource-Id': config.resourceId,
+      'X-Api-Connect-Id': requestId,
+    };
+    if (config.appKey && config.accessKey && config.accessKey !== config.apiKey) {
+      // 方式二：App ID + Access Key
+      authHeaders['X-Api-App-Id'] = config.appKey;
+      authHeaders['X-Api-Access-Key'] = config.accessKey;
+      console.log(`[${requestId}] Using auth method: App ID + Access Key`);
+    } else if (config.apiKey) {
+      // 方式一：API Key
+      authHeaders['X-Api-Key'] = config.apiKey;
+      console.log(`[${requestId}] Using auth method: API Key`);
+    } else {
+      console.log(`[${requestId}] WARNING: No ASR API key configured!`);
+    }
+
     doubaoWs = new WebSocket(wsUrl, {
-      headers: {
-        'X-Api-Key': config.apiKey,
-        'X-Api-Resource-Id': config.resourceId,
-        'X-Api-Connect-Id': requestId,
-      },
+      headers: authHeaders,
     });
 
     doubaoWs.binaryType = 'nodebuffer';

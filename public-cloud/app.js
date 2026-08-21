@@ -59,7 +59,6 @@
   var savedAttendees = [];
   var voiceprintEnabled = false;
   var speakerBindings = {};
-  var speakerMatching = {};
   var summaryBtn = null;
   var clearSummariesBtn = null;
   var importBtn = null;
@@ -791,17 +790,36 @@
       block.style.borderLeftColor = color;
       var badge = document.createElement('span');
       badge.className = getSpeakerLabelClass(speaker);
-      badge.style.background = color;
+      var binding = speakerBindings[speaker];
+      var status = binding ? (binding.status || 'unknown') : 'unknown';
+      if (status !== 'guest') {
+        badge.style.background = color;
+      }
       badge.textContent = getSpeakerLabel(speaker);
       badge.dataset.speakerId = speaker;
-      badge.onclick = function() {
-        if (voiceprintEnabled) {
-          showManualBindDialog(speaker);
-        }
-      };
-      if (voiceprintEnabled && !speakerBindings[speaker] && !speakerMatching[speaker]) {
+      var canClick = voiceprintEnabled && (status !== 'matched_high' && status !== 'manual_bound');
+      if (canClick) {
         badge.style.cursor = 'pointer';
-        badge.title = '点击手动绑定说话人';
+        if (status === 'identifying') {
+          badge.title = '声纹识别中...';
+        } else if (status === 'matched_low') {
+          badge.title = '低置信度识别，点击重新绑定';
+        } else if (status === 'guest') {
+          badge.title = '参会人，点击手动绑定';
+        } else {
+          badge.title = '点击手动绑定说话人';
+        }
+        badge.onclick = (function(spk) {
+          return function() {
+            if (voiceprintEnabled) {
+              showManualBindDialog(spk);
+            }
+          };
+        })(speaker);
+      } else if (status === 'matched_high' || status === 'manual_bound') {
+        badge.title = '已识别为：' + (binding ? binding.username : '');
+      } else if (status === 'guest') {
+        badge.title = '参会人';
       }
       block.appendChild(badge);
     } else {
@@ -884,6 +902,26 @@
   }
 
   function handleResultMsg(msg) {
+    if (msg.speakerOverrides && typeof msg.speakerOverrides === 'object') {
+      Object.keys(msg.speakerOverrides).forEach(function(spkStr) {
+        var spk = parseInt(spkStr, 10);
+        var override = msg.speakerOverrides[spkStr];
+        if (override && !speakerBindings[spk]) {
+          speakerBindings[spk] = {
+            status: override.status || 'unknown',
+            username: override.username,
+            color: override.color || getSpeakerColor(spk),
+            score: override.score,
+            confidence: override.confidence,
+            isGuest: override.status === 'guest'
+          };
+        } else if (override && speakerBindings[spk] && override.username && speakerBindings[spk].status === 'unknown') {
+          speakerBindings[spk].username = override.username;
+          speakerBindings[spk].status = override.status;
+        }
+      });
+    }
+
     var text = msg.text || '';
     var utts = msg.utterances;
     var isFinal = !!msg.isFinal;
@@ -1270,7 +1308,6 @@
         stats.firstResultReceived = false;
         voiceprintEnabled = !!msg.voiceprintEnabled;
         speakerBindings = {};
-        speakerMatching = {};
         addEvent('豆包已连接' + (voiceprintEnabled ? '（声纹自动识别已启用）' : ''));
         if (recordingStartAt > 0 || currentState === 'connecting') {
           startAudioSending();
@@ -1286,22 +1323,51 @@
           renderAppliedConfig();
         }
         renderStats();
-      } else if (msg.type === 'speaker_matching') {
-        speakerMatching[msg.speakerId] = true;
-        addEvent('说话人 ' + (msg.speakerId + 1) + ' 声纹识别中...');
+      } else if (msg.type === 'speaker_identifying') {
+        var spk = msg.speakerId;
+        speakerBindings[spk] = { status: 'identifying', color: getSpeakerColor(spk) };
+        addEvent('说话人' + (spk + 1) + ' 识别中...');
         renderTranscript();
       } else if (msg.type === 'speaker_matched') {
-        speakerMatching[msg.speakerId] = false;
-        speakerBindings[msg.speakerId] = { username: msg.username, color: msg.color, score: msg.score };
-        addEvent('说话人 ' + (msg.speakerId + 1) + ' 已识别为：' + msg.username + '（置信度 ' + msg.score + '）');
+        speakerBindings[msg.speakerId] = {
+          status: msg.confidence === 'high' ? 'matched_high' : 'matched_low',
+          username: msg.username,
+          color: getSpeakerColor(msg.speakerId),
+          score: msg.score,
+          confidence: msg.confidence,
+          isGuest: false
+        };
+        if (msg.confidence === 'high') {
+          addEvent('说话人' + (msg.speakerId + 1) + ' 已识别为：' + msg.username + '（' + msg.score + '分' + (msg.method ? '，' + msg.method : '') + '）');
+        } else {
+          addEvent('说话人' + (msg.speakerId + 1) + ' 初步识别为：' + msg.username + '？（' + msg.score + '分，低置信度）');
+        }
+        renderTranscript();
+      } else if (msg.type === 'speaker_guest') {
+        speakerBindings[msg.speakerId] = {
+          status: 'guest',
+          username: msg.guestName,
+          color: getSpeakerColor(msg.speakerId),
+          isGuest: true
+        };
+        addEvent('说话人' + (msg.speakerId + 1) + ' 标记为参会人');
+        renderTranscript();
+      } else if (msg.type === 'speaker_matching') {
+        var spkOld = msg.speakerId;
+        speakerBindings[spkOld] = { status: 'identifying', color: getSpeakerColor(spkOld) };
+        addEvent('说话人' + (spkOld + 1) + ' 识别中...');
         renderTranscript();
       } else if (msg.type === 'speaker_match_failed') {
-        speakerMatching[msg.speakerId] = false;
-        addEvent('说话人 ' + (msg.speakerId + 1) + ' 声纹识别失败（置信度 ' + msg.score + '），可点击说话人标签手动绑定');
+        if (!speakerBindings[msg.speakerId]) {
+          speakerBindings[msg.speakerId] = { status: 'unknown', color: getSpeakerColor(msg.speakerId), isGuest: false };
+        }
+        addEvent('说话人' + (msg.speakerId + 1) + ' 声纹识别失败（置信度 ' + msg.score + '），可点击说话人标签手动绑定');
         renderTranscript();
       } else if (msg.type === 'speaker_match_error') {
-        speakerMatching[msg.speakerId] = false;
-        addEvent('说话人 ' + (msg.speakerId + 1) + ' 声纹识别出错：' + msg.error);
+        if (!speakerBindings[msg.speakerId]) {
+          speakerBindings[msg.speakerId] = { status: 'unknown', color: getSpeakerColor(msg.speakerId), isGuest: false };
+        }
+        addEvent('说话人' + (msg.speakerId + 1) + ' 声纹识别出错：' + msg.error);
         renderTranscript();
       } else if (msg.type === 'result') {
         handleResultMsg(msg);
@@ -1343,6 +1409,13 @@
           container.appendChild(audio);
           addEvent('录音已生成，可播放');
         }
+        window.__currentRecordingUrl = msg.url;
+        var aucToolbar = document.getElementById('aucToolbar');
+        var aucTranscribeBtn = document.getElementById('aucTranscribeBtn');
+        var aucHint = document.getElementById('aucHint');
+        if (aucToolbar) aucToolbar.hidden = false;
+        if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+        if (aucHint) aucHint.textContent = '录音已就绪，可提交转写';
       }
     };
 
@@ -1624,34 +1697,50 @@
 
   function getSpeakerLabel(speakerId, includeRole) {
     if (speakerId < 0) return '';
-    if (speakerBindings[speakerId] && speakerBindings[speakerId].username) {
-      var b = speakerBindings[speakerId];
-      if (includeRole && b.role) {
-        return b.username + '（' + b.role + '）';
-      }
-      return b.username;
+    var binding = speakerBindings[speakerId];
+    if (!binding) {
+      return '说话人 ' + (speakerId + 1);
     }
-    var validAttendees = getValidAttendees();
-    if (speakerId < validAttendees.length) {
-      var a = validAttendees[speakerId];
-      if (includeRole && a.role) {
-        return a.name + '（' + a.role + '）';
-      }
-      return a.name;
-    }
-    if (speakerMatching[speakerId]) {
+    var status = binding.status || 'unknown';
+    if (status === 'identifying') {
       return '识别中...';
+    }
+    if (status === 'matched_high' || status === 'manual_bound') {
+      if (includeRole && binding.role) {
+        return binding.username + '（' + binding.role + '）';
+      }
+      return binding.username;
+    }
+    if (status === 'matched_low') {
+      return binding.username + '?';
+    }
+    if (status === 'guest') {
+      return binding.username;
+    }
+    if (binding.username) {
+      return binding.username;
     }
     return '说话人 ' + (speakerId + 1);
   }
 
   function getSpeakerLabelClass(speakerId) {
     if (speakerId < 0) return '';
-    if (speakerBindings[speakerId] && speakerBindings[speakerId].username) {
+    var binding = speakerBindings[speakerId];
+    if (!binding) {
+      return 'speaker-badge speaker-unidentified';
+    }
+    var status = binding.status || 'unknown';
+    if (status === 'matched_high' || status === 'manual_bound') {
       return 'speaker-badge speaker-identified';
     }
-    if (speakerMatching[speakerId]) {
+    if (status === 'matched_low') {
+      return 'speaker-badge speaker-identified-low';
+    }
+    if (status === 'identifying') {
       return 'speaker-badge speaker-matching';
+    }
+    if (status === 'guest') {
+      return 'speaker-badge speaker-guest';
     }
     return 'speaker-badge speaker-unidentified';
   }
@@ -2076,4 +2165,1237 @@
 
     window.addEventListener('beforeunload', cleanup);
   });
+})();
+
+// ============ 声纹管理功能 ============
+(function() {
+  function getBasePath() {
+    var p = location.pathname;
+    if (p.endsWith('/')) return p;
+    var idx = p.lastIndexOf('/');
+    return idx >= 0 ? p.substring(0, idx + 1) : '/';
+  }
+
+  function floatTo16BitPCM(float32Array) {
+    var int16 = new Int16Array(float32Array.length);
+    for (var i = 0; i < float32Array.length; i++) {
+      var s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16;
+  }
+
+  var basePath = getBasePath();
+  function apiUrl(path) {
+    return basePath + path.replace(/^\//, '');
+  }
+
+  // DOM 元素
+  var voiceprintBtn = document.getElementById('voiceprintBtn');
+  var overlay = document.getElementById('voiceprintModalOverlay');
+  var modal = document.getElementById('voiceprintModal');
+  var closeBtn = document.getElementById('vpModalCloseBtn');
+  var cancelBtn = document.getElementById('vpModalCancelBtn');
+  var refreshBtn = document.getElementById('vpRefreshBtn');
+  var listBody = document.getElementById('vpListBody');
+  var speakerNameInput = document.getElementById('vpSpeakerName');
+  var sourceRadios = document.querySelectorAll('input[name="vpSource"]');
+  var uploadArea = document.getElementById('vpUploadArea');
+  var fileInput = document.getElementById('vpFileInput');
+  var fileSelectedDiv = document.getElementById('vpFileSelected');
+  var fileNameSpan = document.getElementById('vpFileName');
+  var fileRemoveBtn = document.getElementById('vpFileRemoveBtn');
+  var recordArea = document.getElementById('vpRecordArea');
+  var readGuide = document.getElementById('vpReadGuide');
+  var recordingUI = document.getElementById('vpRecordingUI');
+  var startRecordBtn = document.getElementById('vpStartRecordBtn');
+  var finishBtn = document.getElementById('vpFinishBtn');
+  var rerecordBtn = document.getElementById('vpRerecordBtn');
+  var waveformCanvas = document.getElementById('vpWaveformCanvas');
+  var recordTimer = document.getElementById('vpRecordTimer');
+  var previewAudio = document.getElementById('vpPreviewAudio');
+  var statusDiv = document.getElementById('vpStatus');
+  var registerBtn = document.getElementById('vpRegisterBtn');
+
+  // 状态
+  var uploadedFileUrl = null;
+  var uploadedBlob = null;
+  var isRecording = false;
+  var audioCtx = null;
+  var mediaStream = null;
+  var scriptNode = null;
+  var sourceNode = null;
+  var analyser = null;
+  var recordStartTime = 0;
+  var timerInterval = null;
+  var animationFrameId = null;
+  var recordedBuffers = [];
+  var recordedBlob = null;
+  var isModalOpen = false;
+  var waveformHistory = [];
+
+  // ============ Modal 打开/关闭 ============
+  function openModal() {
+    if (isModalOpen) return;
+    isModalOpen = true;
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    loadList();
+    resetForm();
+  }
+
+  function closeModal() {
+    if (!isModalOpen) return;
+    if (isRecording) stopRecording();
+    cleanupRecording();
+    isModalOpen = false;
+    overlay.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  if (voiceprintBtn) voiceprintBtn.addEventListener('click', openModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+  if (overlay) {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closeModal();
+    });
+  }
+
+  // ============ 表单重置 ============
+  function resetForm() {
+    if (speakerNameInput) speakerNameInput.value = '';
+    if (sourceRadios.length > 0) {
+      sourceRadios[0].checked = true;
+      switchSource('upload');
+    }
+    uploadedFileUrl = null;
+    uploadedBlob = null;
+    recordedBlob = null;
+    if (fileSelectedDiv) fileSelectedDiv.hidden = true;
+    if (previewAudio) {
+      previewAudio.style.display = 'none';
+      previewAudio.src = '';
+    }
+    resetRecordingUI();
+    setStatus('', '');
+    updateRegisterBtn();
+  }
+
+  function resetRecordingUI() {
+    if (readGuide) readGuide.hidden = false;
+    if (recordingUI) recordingUI.hidden = true;
+    if (recordTimer) recordTimer.textContent = '00:00';
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    waveformHistory = [];
+  }
+
+  // ============ 状态提示 ============
+  function setStatus(msg, type) {
+    if (!statusDiv) return;
+    if (!msg) {
+      statusDiv.hidden = true;
+      statusDiv.className = 'vp-status';
+      statusDiv.textContent = '';
+      return;
+    }
+    statusDiv.hidden = false;
+    statusDiv.className = 'vp-status ' + (type || '');
+    statusDiv.textContent = msg;
+  }
+
+  // ============ 切换音频来源 ============
+  function switchSource(source) {
+    if (source === 'upload') {
+      if (uploadArea) uploadArea.style.display = '';
+      if (recordArea) recordArea.hidden = true;
+      recordedBlob = null;
+      if (previewAudio) {
+        previewAudio.style.display = 'none';
+      }
+      cleanupRecording();
+      resetRecordingUI();
+    } else {
+      if (uploadArea) uploadArea.style.display = 'none';
+      if (fileSelectedDiv) fileSelectedDiv.hidden = true;
+      if (recordArea) recordArea.hidden = false;
+      resetRecordingUI();
+      uploadedFileUrl = null;
+      uploadedBlob = null;
+    }
+    setStatus('', '');
+    updateRegisterBtn();
+  }
+
+  for (var i = 0; i < sourceRadios.length; i++) {
+    (function(radio) {
+      radio.addEventListener('change', function() {
+        if (radio.checked) switchSource(radio.value);
+      });
+    })(sourceRadios[i]);
+  }
+
+  // ============ 更新注册按钮状态 ============
+  function updateRegisterBtn() {
+    if (!registerBtn || !speakerNameInput) return;
+    var name = speakerNameInput.value.trim();
+    var checkedRadio = document.querySelector('input[name="vpSource"]:checked');
+    var source = checkedRadio ? checkedRadio.value : 'upload';
+    var hasAudio = source === 'upload' ? !!uploadedFileUrl : !!recordedBlob;
+    var nameOk = name.length >= 2 && name.length <= 64;
+    registerBtn.disabled = !(nameOk && hasAudio);
+  }
+
+  if (speakerNameInput) speakerNameInput.addEventListener('input', updateRegisterBtn);
+
+  // ============ 声纹列表加载 ============
+  async function loadList() {
+    if (!listBody) return;
+    listBody.innerHTML = '<tr><td colspan="4" class="vp-empty">加载中...</td></tr>';
+    try {
+      var resp = await fetch(apiUrl('/api/voiceprint/list'));
+      var data = await resp.json();
+      if (!data.success) throw new Error(data.message || '加载失败');
+      renderList(data.items || []);
+    } catch (err) {
+      listBody.innerHTML = '<tr><td colspan="4" class="vp-empty" style="color:#d93025">加载失败: ' + escapeHtml(err.message) + '</td></tr>';
+    }
+  }
+
+  function renderList(items) {
+    if (!listBody) return;
+    if (items.length === 0) {
+      listBody.innerHTML = '<tr><td colspan="4" class="vp-empty">暂无已注册声纹</td></tr>';
+      return;
+    }
+    var rows = [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      rows.push(
+        '<tr>' +
+          '<td>' + (i + 1) + '</td>' +
+          '<td>' + escapeHtml(item.speakerName) + '</td>' +
+          '<td style="font-family:monospace;font-size:12px;color:#5f6368">' + escapeHtml(item.speakId) + '</td>' +
+          '<td><button class="vp-delete-btn" data-id="' + escapeHtml(item.speakId) + '" data-name="' + escapeHtml(item.speakerName) + '">删除</button></td>' +
+        '</tr>'
+      );
+    }
+    listBody.innerHTML = rows.join('');
+    var deleteBtns = listBody.querySelectorAll('.vp-delete-btn');
+    for (var bi = 0; bi < deleteBtns.length; bi++) {
+      (function(btn) {
+        btn.addEventListener('click', function() { handleDelete(btn.dataset.id, btn.dataset.name); });
+      })(deleteBtns[bi]);
+    }
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  if (refreshBtn) refreshBtn.addEventListener('click', loadList);
+
+  // ============ 删除声纹 ============
+  async function handleDelete(speakId, speakerName) {
+    if (!confirm('确定要删除声纹 "' + speakerName + '" (' + speakId + ') 吗？此操作不可恢复。')) return;
+    var btn = listBody ? listBody.querySelector('.vp-delete-btn[data-id="' + speakId + '"]') : null;
+    if (btn) btn.disabled = true;
+    try {
+      var resp = await fetch(apiUrl('/api/voiceprint/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speakId: speakId })
+      });
+      var data = await resp.json();
+      if (!data.success) throw new Error(data.message || '删除失败');
+      setStatus('删除成功', 'success');
+      loadList();
+    } catch (err) {
+      setStatus('删除失败: ' + err.message, 'error');
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ============ 文件上传 ============
+  if (uploadArea) {
+    uploadArea.addEventListener('click', function() { if (fileInput) fileInput.click(); });
+  }
+  if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (file) handleFileSelect(file);
+      fileInput.value = '';
+    });
+  }
+
+  if (uploadArea) {
+    uploadArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      uploadArea.classList.add('drag-over');
+    });
+    uploadArea.addEventListener('dragleave', function() {
+      uploadArea.classList.remove('drag-over');
+    });
+    uploadArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      uploadArea.classList.remove('drag-over');
+      var file = e.dataTransfer.files[0];
+      if (file) handleFileSelect(file);
+    });
+  }
+
+  if (fileRemoveBtn) {
+    fileRemoveBtn.addEventListener('click', function() {
+      uploadedFileUrl = null;
+      uploadedBlob = null;
+      if (fileSelectedDiv) fileSelectedDiv.hidden = true;
+      if (previewAudio) {
+        previewAudio.style.display = 'none';
+        previewAudio.src = '';
+      }
+      setStatus('', '');
+      updateRegisterBtn();
+    });
+  }
+
+  async function handleFileSelect(file) {
+    var allowedExts = ['.wav', '.mp3', '.m4a', '.webm', '.ogg'];
+    var ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (allowedExts.indexOf(ext) === -1) {
+      setStatus('不支持的文件格式，仅支持 .wav .mp3 .m4a .webm .ogg', 'error');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setStatus('文件过大，最大支持 10MB', 'error');
+      return;
+    }
+    uploadedBlob = file;
+    if (fileNameSpan) fileNameSpan.textContent = file.name + ' (' + formatSize(file.size) + ')';
+    if (fileSelectedDiv) fileSelectedDiv.hidden = false;
+
+    if (previewAudio) {
+      var objUrl = URL.createObjectURL(file);
+      previewAudio.src = objUrl;
+      previewAudio.style.display = 'block';
+    }
+
+    setStatus('正在上传文件...', 'loading');
+    if (registerBtn) registerBtn.disabled = true;
+    try {
+      var buffer = await file.arrayBuffer();
+      var resp = await fetch(apiUrl('/api/voiceprint/upload'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Ext': ext
+        },
+        body: buffer
+      });
+      var data = await resp.json();
+      if (!data.success) throw new Error(data.message || '上传失败');
+      uploadedFileUrl = data.url;
+      setStatus('文件上传成功，可以注册', 'success');
+    } catch (err) {
+      setStatus('上传失败: ' + err.message, 'error');
+      uploadedBlob = null;
+      uploadedFileUrl = null;
+      if (fileSelectedDiv) fileSelectedDiv.hidden = true;
+      if (previewAudio) previewAudio.style.display = 'none';
+    }
+    updateRegisterBtn();
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  // ============ 现场录音 ============
+  if (startRecordBtn) {
+    startRecordBtn.addEventListener('click', function() {
+      startRecording();
+    });
+  }
+
+  if (finishBtn) {
+    finishBtn.addEventListener('click', function() {
+      if (isRecording) stopRecording();
+    });
+  }
+
+  if (rerecordBtn) {
+    rerecordBtn.addEventListener('click', function() {
+      if (isRecording) {
+        isRecording = false;
+        cleanupRecording();
+      }
+      recordedBuffers = [];
+      recordedBlob = null;
+      if (previewAudio) {
+        previewAudio.style.display = 'none';
+        previewAudio.src = '';
+      }
+      uploadedFileUrl = null;
+      resetRecordingUI();
+      setStatus('', '');
+      updateRegisterBtn();
+      startRecording();
+    });
+  }
+
+  function drawWaveform() {
+    if (!analyser || !waveformCanvas) return;
+    var canvas = waveformCanvas;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    var width = rect.width;
+    var height = rect.height;
+
+    var bufferLength = analyser.fftSize;
+    var dataArray = new Uint8Array(bufferLength);
+    analyser.getByteTimeDomainData(dataArray);
+
+    ctx.clearRect(0, 0, width, height);
+
+    var grad = ctx.createLinearGradient(0, 0, width, 0);
+    grad.addColorStop(0, '#9334e6');
+    grad.addColorStop(0.5, '#1a73e8');
+    grad.addColorStop(1, '#9334e6');
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+
+    var sliceWidth = width * 1.0 / bufferLength;
+    var x = 0;
+    for (var i = 0; i < bufferLength; i++) {
+      var v = dataArray[i] / 128.0;
+      var y = v * height / 2;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      x += sliceWidth;
+    }
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    x = 0;
+    for (var j = 0; j < bufferLength; j++) {
+      var v2 = dataArray[j] / 128.0;
+      var y2 = (v2 * height / 2) * 1.3;
+      if (j === 0) {
+        ctx.moveTo(x, y2);
+      } else {
+        ctx.lineTo(x, y2);
+      }
+      x += sliceWidth;
+    }
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    animationFrameId = requestAnimationFrame(drawWaveform);
+  }
+
+  async function startRecording() {
+    try {
+      setStatus('正在获取麦克风权限...', 'loading');
+      if (startRecordBtn) startRecordBtn.disabled = true;
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 16000
+        }
+      });
+
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC({ sampleRate: 16000 });
+
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      sourceNode.connect(analyser);
+
+      scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+      recordedBuffers = [];
+
+      scriptNode.onaudioprocess = function(e) {
+        if (!isRecording) return;
+        var channel = e.inputBuffer.getChannelData(0);
+        recordedBuffers.push(new Float32Array(channel));
+      };
+
+      sourceNode.connect(scriptNode);
+      scriptNode.connect(audioCtx.destination);
+
+      isRecording = true;
+      recordStartTime = Date.now();
+
+      if (readGuide) readGuide.hidden = true;
+      if (recordingUI) recordingUI.hidden = false;
+      if (recordTimer) recordTimer.textContent = '00:00';
+
+      setStatus('正在录音...', 'loading');
+      recordedBlob = null;
+      if (previewAudio) previewAudio.style.display = 'none';
+
+      drawWaveform();
+
+      timerInterval = setInterval(function() {
+        var elapsed = (Date.now() - recordStartTime) / 1000;
+        var m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+        var s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+        if (recordTimer) recordTimer.textContent = m + ':' + s;
+        if (elapsed >= 30) stopRecording();
+      }, 100);
+
+    } catch (err) {
+      if (startRecordBtn) startRecordBtn.disabled = false;
+      setStatus('无法访问麦克风: ' + err.message + (err.name === 'NotReadableError' ? '（可能 ASR 正在录音，请先停止 ASR 录音）' : ''), 'error');
+      cleanupRecording();
+      resetRecordingUI();
+    }
+  }
+
+  async function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
+    var duration = (Date.now() - recordStartTime) / 1000;
+    if (duration < 1.5) {
+      setStatus('录音时间过短（至少需要 1.5 秒），请重试', 'error');
+      cleanupRecording();
+      recordedBuffers = [];
+      resetRecordingUI();
+      updateRegisterBtn();
+      return;
+    }
+
+    setStatus('正在处理录音...', 'loading');
+
+    try {
+      var totalLength = 0;
+      for (var bi = 0; bi < recordedBuffers.length; bi++) totalLength += recordedBuffers[bi].length;
+      var merged = new Float32Array(totalLength);
+      var offset = 0;
+      for (var bj = 0; bj < recordedBuffers.length; bj++) {
+        merged.set(recordedBuffers[bj], offset);
+        offset += recordedBuffers[bj].length;
+      }
+
+      var pcmBuffer = floatTo16BitPCM(merged);
+      var wavBuffer = buildWav(pcmBuffer, 16000, 1, 16);
+      recordedBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+      if (previewAudio) {
+        var objUrl = URL.createObjectURL(recordedBlob);
+        previewAudio.src = objUrl;
+        previewAudio.style.display = 'block';
+      }
+
+      setStatus('录音就绪，可以注册', 'success');
+
+      await uploadRecordedBlob();
+
+    } catch (err) {
+      setStatus('录音处理失败: ' + err.message, 'error');
+      recordedBlob = null;
+    }
+
+    cleanupRecording();
+    updateRegisterBtn();
+  }
+
+  async function uploadRecordedBlob() {
+    if (!recordedBlob) return;
+    try {
+      var ext = '.wav';
+      var buffer = await recordedBlob.arrayBuffer();
+      var resp = await fetch(apiUrl('/api/voiceprint/upload'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Ext': ext
+        },
+        body: buffer
+      });
+      var data = await resp.json();
+      if (!data.success) throw new Error(data.message || '上传失败');
+      uploadedFileUrl = data.url;
+      setStatus('录音已上传，可以注册', 'success');
+    } catch (err) {
+      setStatus('录音上传失败: ' + err.message, 'error');
+      recordedBlob = null;
+      uploadedFileUrl = null;
+    }
+    updateRegisterBtn();
+  }
+
+  function cleanupRecording() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    if (scriptNode) {
+      try { scriptNode.disconnect(); } catch(e) {}
+      scriptNode.onaudioprocess = null;
+      scriptNode = null;
+    }
+    if (sourceNode) {
+      try { sourceNode.disconnect(); } catch(e) {}
+      sourceNode = null;
+    }
+    if (analyser) {
+      try { analyser.disconnect(); } catch(e) {}
+      analyser = null;
+    }
+    if (audioCtx) {
+      try { audioCtx.close(); } catch(e) {}
+      audioCtx = null;
+    }
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(function(t) { t.stop(); });
+      mediaStream = null;
+    }
+  }
+
+  function buildWav(pcmData, sampleRate, numChannels, bitsPerSample) {
+    var byteRate = sampleRate * numChannels * bitsPerSample / 8;
+    var blockAlign = numChannels * bitsPerSample / 8;
+    var dataSize = pcmData.length * 2;
+    var buffer = new ArrayBuffer(44 + dataSize);
+    var view = new DataView(buffer);
+
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    var pcmBytes = new Uint8Array(pcmData.buffer);
+    new Uint8Array(buffer, 44).set(pcmBytes);
+
+    return buffer;
+  }
+
+  function writeString(view, offset, str) {
+    for (var i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  }
+
+  // ============ 注册声纹 ============
+  if (registerBtn) {
+    registerBtn.addEventListener('click', async function() {
+      var name = speakerNameInput ? speakerNameInput.value.trim() : '';
+      if (!name || !uploadedFileUrl) return;
+
+      registerBtn.disabled = true;
+      setStatus('正在向字节服务端注册声纹...', 'loading');
+
+      try {
+        var resp = await fetch(apiUrl('/api/voiceprint/register'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ speakerName: name, audioUrl: uploadedFileUrl })
+        });
+        var data = await resp.json();
+        if (!data.success) throw new Error(data.message || '注册失败');
+
+        setStatus('注册成功！SpeakId: ' + data.speakId, 'success');
+        loadList();
+        if (speakerNameInput) speakerNameInput.value = '';
+        uploadedFileUrl = null;
+        uploadedBlob = null;
+        recordedBlob = null;
+        if (fileSelectedDiv) fileSelectedDiv.hidden = true;
+        if (previewAudio) {
+          previewAudio.style.display = 'none';
+          previewAudio.src = '';
+        }
+        if (sourceRadios.length > 0) {
+          sourceRadios[0].checked = true;
+          switchSource('upload');
+        }
+
+      } catch (err) {
+        setStatus('注册失败: ' + err.message, 'error');
+        registerBtn.disabled = false;
+      }
+      updateRegisterBtn();
+    });
+  }
+
+  // ESC 关闭
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && isModalOpen) closeModal();
+  });
+})();
+
+// ============ 录音文件识别（AUC）功能 ============
+(function() {
+  function getBasePath() {
+    var p = location.pathname;
+    if (p.endsWith('/')) return p;
+    var idx = p.lastIndexOf('/');
+    return idx >= 0 ? p.substring(0, idx + 1) : '/';
+  }
+
+  var basePath = getBasePath();
+  function apiUrl(path) {
+    return basePath + path.replace(/^\//, '');
+  }
+
+  var DEFAULT_AUC_CONFIG = {
+    modelVersion: '2.0',
+    language: '',
+    enable_itn: true,
+    enable_punc: true,
+    enable_ddc: false,
+    enable_speaker_info: true,
+    ssd_version: '300',
+    ssd_mode: 0,
+    show_utterances: true,
+    end_window_size: 800,
+    use_voiceprints: true,
+    selected_voiceprint_ids: []
+  };
+
+  var aucConfigBtn = document.getElementById('aucConfigBtn');
+  var aucTranscribeBtn = document.getElementById('aucTranscribeBtn');
+  var aucHint = document.getElementById('aucHint');
+  var aucToolbar = document.getElementById('aucToolbar');
+  var aucResultsSection = document.getElementById('aucResultsSection');
+  var aucResultsList = document.getElementById('aucResultsList');
+  var aucConfigModalOverlay = document.getElementById('aucConfigModalOverlay');
+  var aucConfigModal = document.getElementById('aucConfigModal');
+  var aucModalCloseBtn = document.getElementById('aucModalCloseBtn');
+  var aucResetBtn = document.getElementById('aucResetBtn');
+  var aucSaveBtn = document.getElementById('aucSaveBtn');
+  var aucModelVersionRadios = document.querySelectorAll('input[name="aucModelVersion"]');
+  var aucLanguageSelect = document.getElementById('aucLanguage');
+  var aucEnableItn = document.getElementById('aucEnableItn');
+  var aucEnablePunc = document.getElementById('aucEnablePunc');
+  var aucEnableDdc = document.getElementById('aucEnableDdc');
+  var aucShowUtterances = document.getElementById('aucShowUtterances');
+  var aucEnableSpeaker = document.getElementById('aucEnableSpeaker');
+  var aucSpeakerOptions = document.getElementById('aucSpeakerOptions');
+  var aucSsdVersionRadios = document.querySelectorAll('input[name="aucSsdVersion"]');
+  var aucSsdModeGroup = document.getElementById('aucSsdModeGroup');
+  var aucSsdModeRadios = document.querySelectorAll('input[name="aucSsdMode"]');
+  var aucEndWindowSize = document.getElementById('aucEndWindowSize');
+  var aucEndWindowValue = document.getElementById('aucEndWindowValue');
+  var aucUseVoiceprints = document.getElementById('aucUseVoiceprints');
+  var aucVoiceprintList = document.getElementById('aucVoiceprintList');
+
+  var isModalOpen = false;
+  var pollingTasks = {};
+
+  function openAucConfigModal() {
+    if (isModalOpen) return;
+    isModalOpen = true;
+    aucConfigModalOverlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    loadAucConfig();
+    loadVoiceprintList();
+  }
+
+  function closeAucConfigModal() {
+    if (!isModalOpen) return;
+    isModalOpen = false;
+    aucConfigModalOverlay.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function loadAucConfig() {
+    fetch(apiUrl('/api/auc/config'))
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (data.success) {
+          fillConfigForm(data.config);
+        } else {
+          fillConfigForm(DEFAULT_AUC_CONFIG);
+        }
+      })
+      .catch(function() {
+        fillConfigForm(DEFAULT_AUC_CONFIG);
+      });
+  }
+
+  function fillConfigForm(config) {
+    var cfg = config || DEFAULT_AUC_CONFIG;
+    for (var i = 0; i < aucModelVersionRadios.length; i++) {
+      if (aucModelVersionRadios[i].value === cfg.modelVersion) {
+        aucModelVersionRadios[i].checked = true;
+        break;
+      }
+    }
+    if (aucLanguageSelect) aucLanguageSelect.value = cfg.language || '';
+    if (aucEnableItn) aucEnableItn.checked = !!cfg.enable_itn;
+    if (aucEnablePunc) aucEnablePunc.checked = !!cfg.enable_punc;
+    if (aucEnableDdc) aucEnableDdc.checked = !!cfg.enable_ddc;
+    if (aucShowUtterances) aucShowUtterances.checked = !!cfg.show_utterances;
+    if (aucEnableSpeaker) aucEnableSpeaker.checked = !!cfg.enable_speaker_info;
+    updateSpeakerOptionsVisibility();
+    for (var j = 0; j < aucSsdVersionRadios.length; j++) {
+      if (aucSsdVersionRadios[j].value === String(cfg.ssd_version)) {
+        aucSsdVersionRadios[j].checked = true;
+        break;
+      }
+    }
+    updateSsdModeVisibility();
+    for (var k = 0; k < aucSsdModeRadios.length; k++) {
+      if (parseInt(aucSsdModeRadios[k].value, 10) === cfg.ssd_mode) {
+        aucSsdModeRadios[k].checked = true;
+        break;
+      }
+    }
+    if (aucEndWindowSize) aucEndWindowSize.value = cfg.end_window_size || 800;
+    updateEndWindowValue();
+    if (aucUseVoiceprints) aucUseVoiceprints.checked = !!cfg.use_voiceprints;
+    window.__aucSelectedVoiceprintIds = cfg.selected_voiceprint_ids || [];
+  }
+
+  function loadVoiceprintList() {
+    fetch(apiUrl('/api/voiceprint/list'))
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (data.success) {
+          renderVoiceprintList(data.items || []);
+        } else {
+          aucVoiceprintList.innerHTML = '<span style="color:#d93025">加载声纹列表失败</span>';
+        }
+      })
+      .catch(function() {
+        aucVoiceprintList.innerHTML = '<span style="color:#d93025">加载声纹列表失败</span>';
+      });
+  }
+
+  function renderVoiceprintList(items) {
+    if (!aucVoiceprintList) return;
+    aucVoiceprintList.innerHTML = '';
+    if (items.length === 0) {
+      aucVoiceprintList.innerHTML = '<span style="color:#5f6368;font-size:13px">暂无已注册声纹</span>';
+      return;
+    }
+    var selectedIds = window.__aucSelectedVoiceprintIds || [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var label = document.createElement('label');
+      label.className = 'auc-checkbox';
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = item.speakId;
+      if (selectedIds.indexOf(item.speakId) !== -1) {
+        input.checked = true;
+      }
+      var span = document.createElement('span');
+      span.textContent = item.speakerName;
+      label.appendChild(input);
+      label.appendChild(span);
+      aucVoiceprintList.appendChild(label);
+    }
+  }
+
+  function updateSpeakerOptionsVisibility() {
+    if (!aucSpeakerOptions || !aucEnableSpeaker) return;
+    aucSpeakerOptions.style.display = aucEnableSpeaker.checked ? '' : 'none';
+  }
+
+  function updateSsdModeVisibility() {
+    if (!aucSsdModeGroup) return;
+    var selectedSsdVersion = null;
+    for (var i = 0; i < aucSsdVersionRadios.length; i++) {
+      if (aucSsdVersionRadios[i].checked) {
+        selectedSsdVersion = aucSsdVersionRadios[i].value;
+        break;
+      }
+    }
+    aucSsdModeGroup.style.display = selectedSsdVersion === '200' ? '' : 'none';
+  }
+
+  function updateEndWindowValue() {
+    if (!aucEndWindowValue || !aucEndWindowSize) return;
+    aucEndWindowValue.textContent = aucEndWindowSize.value + ' ms';
+  }
+
+  function collectFormValues() {
+    var modelVersion = '2.0';
+    for (var i = 0; i < aucModelVersionRadios.length; i++) {
+      if (aucModelVersionRadios[i].checked) {
+        modelVersion = aucModelVersionRadios[i].value;
+        break;
+      }
+    }
+    var ssdVersion = '300';
+    for (var j = 0; j < aucSsdVersionRadios.length; j++) {
+      if (aucSsdVersionRadios[j].checked) {
+        ssdVersion = aucSsdVersionRadios[j].value;
+        break;
+      }
+    }
+    var ssdMode = 0;
+    for (var k = 0; k < aucSsdModeRadios.length; k++) {
+      if (aucSsdModeRadios[k].checked) {
+        ssdMode = parseInt(aucSsdModeRadios[k].value, 10);
+        break;
+      }
+    }
+    var selectedVoiceprintIds = [];
+    if (aucVoiceprintList) {
+      var checkboxes = aucVoiceprintList.querySelectorAll('input[type="checkbox"]:checked');
+      for (var ci = 0; ci < checkboxes.length; ci++) {
+        selectedVoiceprintIds.push(checkboxes[ci].value);
+      }
+    }
+    return {
+      modelVersion: modelVersion,
+      language: aucLanguageSelect ? aucLanguageSelect.value : '',
+      enable_itn: aucEnableItn ? aucEnableItn.checked : true,
+      enable_punc: aucEnablePunc ? aucEnablePunc.checked : true,
+      enable_ddc: aucEnableDdc ? aucEnableDdc.checked : false,
+      enable_speaker_info: aucEnableSpeaker ? aucEnableSpeaker.checked : true,
+      ssd_version: ssdVersion,
+      ssd_mode: ssdMode,
+      show_utterances: aucShowUtterances ? aucShowUtterances.checked : true,
+      end_window_size: aucEndWindowSize ? parseInt(aucEndWindowSize.value, 10) : 800,
+      use_voiceprints: aucUseVoiceprints ? aucUseVoiceprints.checked : true,
+      selected_voiceprint_ids: selectedVoiceprintIds
+    };
+  }
+
+  function saveAucConfig() {
+    var config = collectFormValues();
+    fetch(apiUrl('/api/auc/config'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: config })
+    })
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (data.success) {
+          closeAucConfigModal();
+        } else {
+          alert('保存配置失败：' + (data.message || '未知错误'));
+        }
+      })
+      .catch(function(err) {
+        alert('保存配置失败：' + err.message);
+      });
+  }
+
+  function resetAucConfig() {
+    fillConfigForm(DEFAULT_AUC_CONFIG);
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '-';
+    var d = new Date(ts);
+    var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  function previewTranscript(url) {
+    var fullUrl = url;
+    if (fullUrl.charAt(0) === '/') {
+      fullUrl = basePath + fullUrl.substring(1);
+    }
+    window.open(fullUrl, '_blank');
+  }
+
+  function addResultItem(task) {
+    if (!aucResultsList) return null;
+    var placeholder = aucResultsList.querySelector('.placeholder');
+    if (placeholder) placeholder.remove();
+    var item = document.createElement('div');
+    item.className = 'auc-result-item';
+    item.dataset.taskId = task.taskId;
+    aucResultsList.insertBefore(item, aucResultsList.firstChild);
+    updateResultItem(item, task);
+    if (aucResultsSection) aucResultsSection.hidden = false;
+    return item;
+  }
+
+  function updateResultItem(itemEl, task) {
+    if (!itemEl) return;
+    itemEl.innerHTML = '';
+    itemEl.className = 'auc-result-item';
+
+    var statusClass = '';
+    var statusText = '';
+    switch (task.status) {
+      case 'queued':
+        statusText = '排队中';
+        statusClass = 'auc-status-queued';
+        break;
+      case 'processing':
+        statusText = '识别中';
+        statusClass = 'auc-status-processing';
+        break;
+      case 'completed':
+        statusText = '已完成';
+        statusClass = 'auc-status-completed';
+        break;
+      case 'failed':
+        statusText = '失败';
+        statusClass = 'auc-status-failed';
+        break;
+    }
+    itemEl.classList.add(statusClass);
+
+    var statusDiv = document.createElement('div');
+    statusDiv.className = 'auc-result-status';
+
+    if (task.status === 'queued' || task.status === 'processing') {
+      var spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      statusDiv.appendChild(spinner);
+    }
+
+    var statusSpan = document.createElement('span');
+    statusSpan.textContent = statusText;
+    statusDiv.appendChild(statusSpan);
+    itemEl.appendChild(statusDiv);
+
+    var infoDiv = document.createElement('div');
+    infoDiv.className = 'auc-result-info';
+
+    var metaLine = document.createElement('div');
+    var hasMeta = false;
+    if (task.createdAt) {
+      var timeSpan = document.createElement('span');
+      timeSpan.className = 'auc-result-time';
+      timeSpan.textContent = formatTime(task.createdAt);
+      metaLine.appendChild(timeSpan);
+      hasMeta = true;
+    }
+    if (task.duration) {
+      var durSpan = document.createElement('span');
+      durSpan.className = 'auc-result-duration';
+      durSpan.textContent = (task.duration / 1000).toFixed(1) + 's';
+      metaLine.appendChild(durSpan);
+      hasMeta = true;
+    }
+    if (hasMeta) {
+      infoDiv.appendChild(metaLine);
+    }
+
+    if (task.status === 'failed' && task.error) {
+      var errDiv = document.createElement('div');
+      errDiv.className = 'auc-result-error';
+      errDiv.textContent = task.error;
+      infoDiv.appendChild(errDiv);
+    }
+
+    itemEl.appendChild(infoDiv);
+
+    var actionsDiv = document.createElement('div');
+    actionsDiv.className = 'auc-result-actions';
+
+    if (task.status === 'completed' && task.transcriptUrl) {
+      var previewBtn = document.createElement('button');
+      previewBtn.className = 'auc-result-preview';
+      previewBtn.textContent = '查看转写';
+      previewBtn.addEventListener('click', function() {
+        previewTranscript(task.transcriptUrl);
+      });
+      actionsDiv.appendChild(previewBtn);
+    }
+
+    if (task.status === 'failed') {
+      var retryBtn = document.createElement('button');
+      retryBtn.className = 'auc-result-retry';
+      retryBtn.textContent = '重试';
+      retryBtn.addEventListener('click', function() {
+        retryTranscribe(task.recordingUrl);
+      });
+      actionsDiv.appendChild(retryBtn);
+    }
+
+    itemEl.appendChild(actionsDiv);
+  }
+
+  function findResultItem(taskId) {
+    if (!aucResultsList) return null;
+    return aucResultsList.querySelector('.auc-result-item[data-task-id="' + taskId + '"]');
+  }
+
+  function startTranscription() {
+    var recordingUrl = window.__currentRecordingUrl;
+    if (!recordingUrl) {
+      alert('没有可用的录音文件');
+      return;
+    }
+    if (aucTranscribeBtn) aucTranscribeBtn.disabled = true;
+    if (aucHint) aucHint.textContent = '正在提交转写任务...';
+
+    fetch(apiUrl('/api/auc/submit'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recordingUrl: recordingUrl })
+    })
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (data.success) {
+          var task = {
+            taskId: data.taskId,
+            status: 'queued',
+            recordingUrl: recordingUrl,
+            createdAt: Date.now()
+          };
+          addResultItem(task);
+          if (aucHint) aucHint.textContent = '任务已提交，等待处理...';
+          pollTaskStatus(data.taskId);
+        } else {
+          if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+          if (aucHint) aucHint.textContent = '提交失败：' + (data.message || '未知错误');
+          alert('提交失败：' + (data.message || '未知错误'));
+        }
+      })
+      .catch(function(err) {
+        if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+        if (aucHint) aucHint.textContent = '提交失败：' + err.message;
+        alert('提交失败：' + err.message);
+      });
+  }
+
+  function pollTaskStatus(taskId) {
+    if (pollingTasks[taskId]) return;
+
+    function doPoll() {
+      fetch(apiUrl('/api/auc/query?taskId=' + encodeURIComponent(taskId)))
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+          if (data.success) {
+            var itemEl = findResultItem(taskId);
+            updateResultItem(itemEl, data);
+
+            if (data.status === 'completed' || data.status === 'failed') {
+              delete pollingTasks[taskId];
+              if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+              if (aucHint) {
+                if (data.status === 'completed') {
+                  aucHint.textContent = '转写完成';
+                } else {
+                  aucHint.textContent = '转写失败';
+                }
+              }
+            } else {
+              pollingTasks[taskId] = setTimeout(doPoll, 3000);
+            }
+          } else {
+            delete pollingTasks[taskId];
+            if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+          }
+        })
+        .catch(function() {
+          delete pollingTasks[taskId];
+          if (aucTranscribeBtn) aucTranscribeBtn.disabled = false;
+        });
+    }
+
+    doPoll();
+  }
+
+  function retryTranscribe(recordingUrl) {
+    window.__currentRecordingUrl = recordingUrl;
+    startTranscription();
+  }
+
+  function loadHistoryTasks() {
+    fetch(apiUrl('/api/auc/list'))
+      .then(function(resp) { return resp.json(); })
+      .then(function(data) {
+        if (data.success && Array.isArray(data.tasks)) {
+          var tasks = data.tasks.slice(0, 20);
+          if (tasks.length > 0 && aucResultsList) {
+            aucResultsList.innerHTML = '';
+            for (var i = 0; i < tasks.length; i++) {
+              addResultItem(tasks[i]);
+              if (tasks[i].status === 'queued' || tasks[i].status === 'processing') {
+                pollTaskStatus(tasks[i].taskId);
+              }
+            }
+          }
+        }
+      })
+      .catch(function() {});
+  }
+
+  if (aucConfigBtn) aucConfigBtn.addEventListener('click', openAucConfigModal);
+  if (aucModalCloseBtn) aucModalCloseBtn.addEventListener('click', closeAucConfigModal);
+  if (aucResetBtn) aucResetBtn.addEventListener('click', resetAucConfig);
+  if (aucSaveBtn) aucSaveBtn.addEventListener('click', saveAucConfig);
+  if (aucTranscribeBtn) aucTranscribeBtn.addEventListener('click', startTranscription);
+
+  if (aucConfigModalOverlay) {
+    aucConfigModalOverlay.addEventListener('click', function(e) {
+      if (e.target === aucConfigModalOverlay) closeAucConfigModal();
+    });
+  }
+
+  if (aucEnableSpeaker) {
+    aucEnableSpeaker.addEventListener('change', updateSpeakerOptionsVisibility);
+  }
+
+  for (var i = 0; i < aucSsdVersionRadios.length; i++) {
+    aucSsdVersionRadios[i].addEventListener('change', updateSsdModeVisibility);
+  }
+
+  if (aucEndWindowSize) {
+    aucEndWindowSize.addEventListener('input', updateEndWindowValue);
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && isModalOpen) closeAucConfigModal();
+  });
+
+  updateSpeakerOptionsVisibility();
+  updateSsdModeVisibility();
+  updateEndWindowValue();
+  loadHistoryTasks();
 })();

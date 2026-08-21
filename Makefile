@@ -5,10 +5,10 @@
 NPM = npm
 NPM_CONFIG_REGISTRY = https://registry.npmmirror.com
 CLOUD_PORT ?= 3001
-CLOUD_IP ?= 212.64.57.180
+CLOUD_IP ?= 62.234.42.199
 CLOUD_PUBLIC_DOMAIN ?= longer8888.tech
 CLOUD_PUBLIC_PATH ?= /asr-demo-multi
-SSH_TARGET ?= shcvm
+SSH_TARGET ?= txcvm
 REMOTE_DIR ?= /root/doubao-asr-cloud
 
 install:
@@ -107,10 +107,47 @@ qa:
 	@grep -q "correct_words" server-cloud/asr-config.ts || (echo "ERROR: correct_words missing in asr-config.ts" && exit 1)
 	@grep -q "boosting_table_id" server-cloud/asr-config.ts || (echo "ERROR: boosting_table_id missing in asr-config.ts" && exit 1)
 	@grep -q "parseHotwordsInput\|hotwordsInput" public-cloud/app.js || (echo "ERROR: hotword input parsing missing in cloud frontend" && exit 1)
+	@echo "23. Voiceprint client module check (cloud)..."
+	@test -f server-cloud/bytedance-voiceprint.ts || (echo "ERROR: server-cloud/bytedance-voiceprint.ts missing" && exit 1)
+	@echo "24. Voiceprint API endpoints check..."
+	@grep -q "/api/voiceprint/upload" server-cloud/index.ts || (echo "ERROR: /api/voiceprint/upload endpoint missing" && exit 1)
+	@grep -q "/api/voiceprint/register" server-cloud/index.ts || (echo "ERROR: /api/voiceprint/register endpoint missing" && exit 1)
+	@grep -q "/api/voiceprint/list" server-cloud/index.ts || (echo "ERROR: /api/voiceprint/list endpoint missing" && exit 1)
+	@grep -q "/api/voiceprint/delete" server-cloud/index.ts || (echo "ERROR: /api/voiceprint/delete endpoint missing" && exit 1)
+	@echo "25. Voiceprint uploads static service check..."
+	@grep -q "'/uploads/'" server-cloud/index.ts || (echo "ERROR: /uploads/ static route missing" && exit 1)
+	@grep -q "stale.*upload\|1.*hour\|ONE_HOUR" server-cloud/index.ts || (echo "ERROR: startup stale file cleanup missing" && exit 1)
+	@echo "26. Voiceprint frontend elements check..."
+	@grep -q "voiceprintBtn" public-cloud/index.html || (echo "ERROR: voiceprintBtn button missing in HTML" && exit 1)
+	@grep -q "voiceprintModalOverlay" public-cloud/index.html || (echo "ERROR: voiceprintModalOverlay missing in HTML" && exit 1)
+	@grep -q "vpUploadArea\|vpRecordBtn\|vpSpeakerName\|vpRegisterBtn" public-cloud/index.html || (echo "ERROR: voiceprint form elements missing in HTML" && exit 1)
+	@grep -q "voiceprintBtn" public-cloud/app.js || (echo "ERROR: voiceprintBtn handler missing in app.js" && exit 1)
+	@grep -q "vpRecordBtn\|startRecording\|stopRecording" public-cloud/app.js || (echo "ERROR: recording logic missing in app.js" && exit 1)
+	@grep -q "buildWav\|floatTo16BitPCM" public-cloud/app.js || (echo "ERROR: WAV construction missing in app.js" && exit 1)
+	@echo "27. Voiceprint CSS styles check..."
+	@grep -q "vp-list-table\|vp-upload-area\|vp-record-btn\|vp-volume-bar" public-cloud/style.css || (echo "ERROR: voiceprint CSS styles missing" && exit 1)
+	@echo "28. AUC client module check..."
+	@test -f server-cloud/auc-client.ts || (echo "ERROR: server-cloud/auc-client.ts missing" && exit 1)
+	@echo "29. AUC API endpoints check..."
+	@grep -q "/api/auc/config" server-cloud/index.ts || (echo "ERROR: /api/auc/config endpoint missing" && exit 1)
+	@grep -q "/api/auc/submit" server-cloud/index.ts || (echo "ERROR: /api/auc/submit endpoint missing" && exit 1)
+	@grep -q "/api/auc/query" server-cloud/index.ts || (echo "ERROR: /api/auc/query endpoint missing" && exit 1)
+	@grep -q "/api/auc/list" server-cloud/index.ts || (echo "ERROR: /api/auc/list endpoint missing" && exit 1)
+	@echo "30. AUC transcripts static service check..."
+	@grep -q "'/transcripts/'" server-cloud/index.ts || (echo "ERROR: /transcripts/ static route missing" && exit 1)
+	@grep -q "stale.*transcript\|24.*hour" server-cloud/index.ts || (echo "ERROR: startup stale transcript cleanup missing" && exit 1)
+	@echo "31. AUC frontend elements check..."
+	@grep -q "aucConfigBtn\|aucTranscribeBtn" public-cloud/index.html || (echo "ERROR: AUC buttons missing in HTML" && exit 1)
+	@grep -q "aucConfigModalOverlay" public-cloud/index.html || (echo "ERROR: aucConfigModalOverlay missing in HTML" && exit 1)
+	@grep -q "aucToolbar\|aucResultsSection" public-cloud/index.html || (echo "ERROR: AUC toolbar/results section missing in HTML" && exit 1)
+	@grep -q "aucConfigBtn\|aucTranscribeBtn" public-cloud/app.js || (echo "ERROR: AUC button handlers missing in app.js" && exit 1)
+	@grep -q "/api/auc/submit\|/api/auc/query" public-cloud/app.js || (echo "ERROR: AUC API calls missing in app.js" && exit 1)
+	@echo "32. AUC CSS styles check..."
+	@grep -q "auc-toolbar\|auc-result-item\|auc-config-modal" public-cloud/style.css || (echo "ERROR: AUC CSS styles missing" && exit 1)
 	@echo "=== All QA checks passed ==="
 
 clean:
-	rm -rf dist/ recordings/
+	rm -rf dist/ recordings/ uploads/ transcripts/
 
 cloud-setup:
 	@echo "=== Setting up remote environment on $(SSH_TARGET) ==="
@@ -125,9 +162,9 @@ cloud-build:
 
 cloud-sync: cloud-build
 	@echo "=== Syncing to $(SSH_TARGET):$(REMOTE_DIR) ==="
-	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/logs"
-	rsync -avz --delete --exclude='node_modules' --exclude='recordings/*' --exclude='logs/' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
-	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/logs"
+	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/logs"
+	rsync -avz --delete --exclude='node_modules' --exclude='recordings/*' --exclude='uploads/*' --exclude='transcripts/*' --exclude='logs/' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
+	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/logs"
 	@echo "Sync complete"
 
 cloud-deps:

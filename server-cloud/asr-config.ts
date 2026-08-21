@@ -11,7 +11,7 @@ export interface SanitizedConfig {
   end_window_size: number;
 }
 
-const DEFAULT_HOTWORDS: string[] = [
+export const DEFAULT_HOTWORDS: string[] = [
   '陈明辉','李思远','王雨桐','张文博','赵梦琪','刘天阳','孙雅婷','周浩然',
   'ASR会议转写','实时语音识别','豆包大模型','Doubao-Seed-ASR','Seed-ASR-2.0',
   '语音转写','实时转写','会议纪要','说话人分离','声纹识别','声纹注册',
@@ -28,7 +28,7 @@ const DEFAULT_HOTWORDS: string[] = [
   '压测报告','MVP版本','V1.0','里程碑','交付节点','技术债','风险项','阻塞问题',
 ];
 
-const DEFAULT_CORRECT_WORDS: Record<string, string> = {
+export const DEFAULT_CORRECT_WORDS: Record<string, string> = {
   'T T F T': 'TTFT', 'T T F B': 'TTFB', '首字节时间': 'TTFB', '首字时间': 'TTFT',
   '西伊啊尔': 'CER', '字错误率': 'CER', '啊尔提艾弗': 'RTF', '实时率': 'RTF',
   '克呦皮艾斯': 'QPS', '每秒查询': 'QPS',
