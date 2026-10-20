@@ -374,3 +374,13 @@
 
 ### [E2E] 双人实时对话
 - 结果：仍待人工验证（单元测试覆盖状态机逻辑，浏览器端真实 ASR speaker 漂移场景未自动化）。
+
+### [DEPLOY] txcvm 生产部署验证（2026-10-20 20:39 CST）
+- 部署命令：`make cloud-deploy`（aidlc 构建，rsync 同步 txcvm `/root/doubao-asr-cloud`，PM2 reload）。
+- 部署前备份：`voiceprints/local-voiceprints.json.bak-20261020`。
+- 结果：✅ 通过
+  - PM2 `doubao-asr-cloud` online（新 PID 644901），`pm2 save` 成功；同机其他 5 个服务未受影响。
+  - 启动日志：`injected env (5)`（生产凭证保留）、`Loaded 7 speakers from persistent storage`（声纹库未被同步删除）、`GPU embed service health: OK`。
+  - 公网 `https://longer8888.tech/asr-demo-multi/` 静态资源版本 `?v=20261020a`；新 app.js 含漂移颜色纠正逻辑（`override.color`）。
+  - `/api/voiceprint/list`：云端 44、localCount 7；`/api/auc/config`：`use_voiceprints=true`。
+- 说明：GitHub HTTPS 在 aidlc 不可直连，推送经 `git@github.com` SSH 通道完成。

@@ -295,6 +295,11 @@
   - 从"非目标"中移除"不做声纹库持久化"条目
   - 新增7.3节本地声纹库持久化设计（存储方案、启动加载流程、写入时机、一致性保证）
 
+## 2026-10-20 (v5.0 漂移修复部署上线)
+
+- [DEPLOY] GitHub HEAD `a620e6e` 经 `make cloud-deploy` 部署到 txcvm：PM2 reload 成功，7 人本地声纹库与生产凭证完好，公网版本 `?v=20261020a`，云端声纹 44 / 本地 7，AUC `use_voiceprints=true`。
+- [DOCS] TEST_EXECUTION_LOG 补充单元测试、aidlc 冒烟与部署验证记录。
+
 ## 2026-10-20 (部署安全加固 + 前端缓存版本)
 
 - [FIX] `Makefile` cloud-sync 增加 `--exclude='voiceprints/*'`：修复 rsync `--delete` 会删除线上本地声纹库（voiceprints/local-voiceprints.json）的隐患，同步后自动 mkdir 保留目录。
