@@ -341,3 +341,36 @@
 - 依赖安装：`npm ci` 成功，使用 `https://registry.npmmirror.com`
 - Codex：`codex-cli 0.159.0` 可用
 - Git 基线：迁移验证时 `HEAD=9dc47e002352c7b3b7df5fec0a659be37f68cbea`
+
+---
+
+## 2026-10-20 RealtimeSpeakerMatcher 单元测试补齐（spike/matcher-unit-tests）
+
+### [UNIT] 状态机单元测试
+- 执行时间：2026-10-20
+- 执行位置：aidlc `/data/codex/workspace/03-meetingASR`
+- 执行命令：`npm test`（Node 内置 `node:test` + `ts-node/register`，无新增依赖）
+- 测试文件：`test/realtime-speaker-matcher.test.ts`
+- 结果：✅ **5/5 通过**
+- 注入方式：覆写 `gpuEmbedClient.extractEmbedding` 返回构造的 192 维归一化向量；mutate `config` 控制阈值；合成高能量 PCM 通过 VAD。
+- 覆盖用例：
+  1. 连续 3 次命中他人（score ≥ driftMinScore 75）后触发 `drift_correction`，姓名与颜色切换，前 2 次保持原名。
+  2. 同一姓名跨 speaker 槽位复用同一颜色（`nameColorMap`）。
+  3. 超时低分分配 `guest`（参会人N）后，连续 `voiceprintGuestUpgradeHits=3` 次命中注册人触发 `guest_upgrade`。
+  4. 高置信确认（verify）会重置漂移连续计数，计数不跨确认累计。
+  5. `VOICEPRINT_DRIFT_CORRECTION_ENABLED=false` 回退 v4.0：绑定后不再请求 embedding、不再改名。
+
+### [SMOKE] aidlc 本地冒烟
+- 执行命令：tmux 内 `CLOUD_PORT=3001 VOICEPRINT_ENABLED=true npx ts-node server-cloud/index.ts`
+- 结果：✅ 通过
+  - 启动日志：`GPU embed service health: OK, voiceprintEnabled=true`（aidlc → 192.168.1.146:8002 内网连通）。
+  - `GET /` 200（26088B）；`GET /api/config-schema` 200；`GET /api/auc/config` 200 且默认配置完整。
+  - `GET /api/voiceprint/list` 500：预期行为，aidlc 不持有豆包凭证（迁移边界），仅证明凭证缺失而非代码缺陷。
+- 冒烟后已停止 tmux 会话并清理空产物目录。
+
+### [QA] make qa 门禁
+- 执行命令：`make qa`
+- 结果：✅ **全部通过** (33/33，新增第 33 项 matcher 单元测试)
+
+### [E2E] 双人实时对话
+- 结果：仍待人工验证（单元测试覆盖状态机逻辑，浏览器端真实 ASR speaker 漂移场景未自动化）。

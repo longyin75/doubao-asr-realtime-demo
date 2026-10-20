@@ -112,9 +112,9 @@ make qa
 - Codex CLI 已安装，可从目标目录读取仓库级 `AGENTS.md` 继续开发。
 - v4.0 已实现本地声纹库持久化。
 - v5.0 已实现实时声纹标签漂移纠正、guest 升级和按姓名统一颜色。
-- 当前自动化门禁为 `make qa` 32 项检查。
-- 当前没有 `npm test` 单元测试入口。
-- 优先补充 `RealtimeSpeakerMatcher` 状态机单元测试，覆盖漂移计数、自动纠正、guest 升级、颜色复用和 v4.0 回退开关。
+- 当前自动化门禁为 `make qa` 33 项检查（第 33 项为单元测试）。
+- 已有 `npm test` 单元测试入口：`test/realtime-speaker-matcher.test.ts`，覆盖漂移计数、自动纠正、guest 升级、颜色复用和 v4.0 回退开关。
+- 后续测试重点：浏览器端双人实时 E2E（真实 ASR speaker 槽位漂移）与更多边界条件。
 
 ## 9. 回滚
 

@@ -295,6 +295,21 @@
   - 从"非目标"中移除"不做声纹库持久化"条目
   - 新增7.3节本地声纹库持久化设计（存储方案、启动加载流程、写入时机、一致性保证）
 
+## 2026-10-20 (部署安全加固 + 前端缓存版本)
+
+- [FIX] `Makefile` cloud-sync 增加 `--exclude='voiceprints/*'`：修复 rsync `--delete` 会删除线上本地声纹库（voiceprints/local-voiceprints.json）的隐患，同步后自动 mkdir 保留目录。
+- [FIX] `Makefile` cloud-sync 增加 `--exclude='inventory.local.env'`：防止开发机构建产物中的占位/本地凭证覆盖 txcvm 生产凭证，凭证仅由目标环境维护。
+- [CHORE] public-cloud 静态资源版本号 bump 至 `?v=20261020a`，强制浏览器加载 v5.0 漂移修复后的 app.js/style.css。
+
+## 2026-10-20 (RealtimeSpeakerMatcher 单元测试补齐)
+
+- [FEAT] 新增 `test/realtime-speaker-matcher.test.ts`（node:test + ts-node，零新增依赖）
+  - 覆盖漂移连续计数与第 3 次自动纠正（drift_correction）、同姓名跨槽位颜色复用、guest 连续命中升级实名（guest_upgrade）、高置信确认重置漂移计数、v4.0 回退开关 5 个场景。
+  - 通过覆写 `gpuEmbedClient.extractEmbedding` 注入 192 维向量、mutate `config` 阈值、合成高能量 PCM 实现可重复的纯状态机测试。
+- [CHORE] `package.json` 新增 `npm test`；`Makefile` qa 新增第 33 项检查，`make qa` 升级为 33 项。
+- [CHORE] aidlc 本地冒烟通过：服务启动、GPU embedding health、静态页与 config 接口正常（无豆包凭证，外部声纹列表接口除外）。
+- 说明：双人实时 E2E 仍待人工验证。
+
 ## 2026-10-20 (v5.0 声纹漂移纠正实现)
 
 - [FIX] 实现实时声纹标签漂移检测与自动纠正

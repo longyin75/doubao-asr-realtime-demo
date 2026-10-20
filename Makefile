@@ -144,6 +144,8 @@ qa:
 	@grep -q "/api/auc/submit\|/api/auc/query" public-cloud/app.js || (echo "ERROR: AUC API calls missing in app.js" && exit 1)
 	@echo "32. AUC CSS styles check..."
 	@grep -q "auc-toolbar\|auc-result-item\|auc-config-modal" public-cloud/style.css || (echo "ERROR: AUC CSS styles missing" && exit 1)
+	@echo "33. RealtimeSpeakerMatcher unit tests..."
+	npm test --silent
 	@echo "=== All QA checks passed ==="
 
 clean:
@@ -162,9 +164,9 @@ cloud-build:
 
 cloud-sync: cloud-build
 	@echo "=== Syncing to $(SSH_TARGET):$(REMOTE_DIR) ==="
-	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/logs"
-	rsync -avz --delete --exclude='node_modules' --exclude='recordings/*' --exclude='uploads/*' --exclude='transcripts/*' --exclude='logs/' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
-	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/logs"
+	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/voiceprints $(REMOTE_DIR)/logs"
+	rsync -avz --delete --exclude='node_modules' --exclude='inventory.local.env' --exclude='recordings/*' --exclude='uploads/*' --exclude='transcripts/*' --exclude='voiceprints/*' --exclude='logs/' dist/ $(SSH_TARGET):$(REMOTE_DIR)/
+	ssh $(SSH_TARGET) "mkdir -p $(REMOTE_DIR)/recordings $(REMOTE_DIR)/uploads $(REMOTE_DIR)/transcripts $(REMOTE_DIR)/voiceprints $(REMOTE_DIR)/logs"
 	@echo "Sync complete"
 
 cloud-deps:

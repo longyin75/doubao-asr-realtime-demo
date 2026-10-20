@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
+    "test": "node --require ts-node/register --test test/*.test.ts",
     "dev": "ts-node server/index.ts",
     "build": "rm -rf dist && tsc && mkdir -p dist/public && cp public/* dist/public/ && cp inventory.local.env dist/inventory.local.env",
     "start": "node dist/server/index.js",
