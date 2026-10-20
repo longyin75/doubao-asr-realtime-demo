@@ -49,6 +49,7 @@ https://github.com/longyin75/doubao-asr-realtime-demo.git
 | Git | 2.47.1 |
 | Make | 4.3 |
 | tmux | 3.2a |
+| Codex CLI | 0.159.0 |
 | `/data` 可用空间 | 约 175GB |
 
 ## 4. 迁移流程
@@ -107,6 +108,8 @@ make qa
 
 ## 8. 当前状态与后续重点
 
+- aidlc 已完成 GitHub `main` 克隆、npm 依赖安装和 `make qa` 验证。
+- Codex CLI 已安装，可从目标目录读取仓库级 `AGENTS.md` 继续开发。
 - v4.0 已实现本地声纹库持久化。
 - v5.0 已实现实时声纹标签漂移纠正、guest 升级和按姓名统一颜色。
 - 当前自动化门禁为 `make qa` 32 项检查。
@@ -118,4 +121,3 @@ make qa
 - 迁移失败时删除 aidlc 目标目录并重新克隆，不影响 GitHub 或生产服务。
 - 代码回滚使用 Git revert，不使用 `git reset --hard` 覆盖共享历史。
 - 生产回滚仍遵循 txcvm 上的 PM2 与部署手册，本次迁移不改变生产拓扑。
-

@@ -336,4 +336,8 @@
 
 ### [QA] aidlc 迁移后门禁
 - 执行命令：`make qa`
-- 结果：待执行
+- 执行位置：`/data/codex/workspace/03-meetingASR`
+- 结果：✅ **全部通过** (32/32)
+- 依赖安装：`npm ci` 成功，使用 `https://registry.npmmirror.com`
+- Codex：`codex-cli 0.159.0` 可用
+- Git 基线：迁移验证时 `HEAD=9dc47e002352c7b3b7df5fec0a659be37f68cbea`

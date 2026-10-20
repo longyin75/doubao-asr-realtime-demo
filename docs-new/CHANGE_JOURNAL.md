@@ -331,3 +331,8 @@
 - [CHORE] 迁移边界
   - 通过 GitHub 克隆代码，不复制本机 `inventory.local.env`、Token、私钥、运行时音频或声纹数据。
   - aidlc 目标目录迁移前为空，不覆盖现有远端工作。
+
+- [CHORE] aidlc 迁移完成
+  - GitHub `main` 已克隆至 `/data/codex/workspace/03-meetingASR`。
+  - npm 已配置淘宝镜像并通过 `npm ci` 安装依赖。
+  - 远端 `make qa` 32/32 通过，`codex-cli 0.159.0` 可用。
