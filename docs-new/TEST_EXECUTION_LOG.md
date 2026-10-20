@@ -314,3 +314,26 @@
   - 同一姓名跨 speaker 槽位保持相同颜色。
   - guest 连续命中注册人后可升级为实名。
   - `VOICEPRINT_DRIFT_CORRECTION_ENABLED=false` 时恢复 v4.0 行为。
+
+---
+
+## 2026-10-20 aidlc Codex 开发环境迁移
+
+### [QA] 本地迁移前门禁
+- 执行命令：`make qa`
+- 结果：✅ **全部通过** (32/32)
+- 说明：交接文档和 `AGENTS.md` 提交前，本地 TypeScript、JavaScript、项目结构和安全检查全部通过。
+
+### [ENV] aidlc 环境预检
+- SSH 别名：`aidlc`
+- 目标目录：`/data/codex/workspace/03-meetingASR`
+- 结果：✅ **通过**
+- 验证点：
+  - ✅ 目标目录存在且迁移前为空
+  - ✅ Git 2.47.1、Node.js v20.20.2、npm 10.8.2、Make 4.3、tmux 3.2a 可用
+  - ✅ `/data` 可用空间约 175GB
+  - ✅ aidlc 可访问 GitHub 仓库 `main`
+
+### [QA] aidlc 迁移后门禁
+- 执行命令：`make qa`
+- 结果：待执行

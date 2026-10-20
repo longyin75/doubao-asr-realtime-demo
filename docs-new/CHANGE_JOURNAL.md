@@ -317,3 +317,17 @@
   - 实现依据：`docs-new/REALTIME_VOICEPRINT_DESIGN.md` v5.0 第 13 节。
   - 涉及文件：`server-cloud/realtime-speaker-matcher.ts`、`server-cloud/config.ts`、`server-cloud/index.ts`、`public-cloud/app.js`。
   - 质量门禁结果记录于 `docs-new/TEST_EXECUTION_LOG.md`。
+
+## 2026-10-20 (aidlc Codex 开发环境迁移)
+
+- [DOCS] 新增 aidlc 云端开发交接文档
+  - 新增 `docs-new/CLOUD_AIDLC_HANDOFF.md`，记录目标路径、环境基线、迁移步骤、密钥边界、回滚方式和后续开发重点。
+  - 明确 GitHub `main` 为代码真相源，aidlc 仅作为云端开发环境，本次不切换生产服务。
+
+- [CHORE] 新增 Codex 仓库级开发约束
+  - 新增 `AGENTS.md`，要求 Codex 遵循文档先行、spike 分支、测试审计、`make qa`、密钥隔离和运行前检查。
+  - 固化云端路径 `/data/codex/workspace/03-meetingASR`、Node.js 版本和国内 npm 镜像要求。
+
+- [CHORE] 迁移边界
+  - 通过 GitHub 克隆代码，不复制本机 `inventory.local.env`、Token、私钥、运行时音频或声纹数据。
+  - aidlc 目标目录迁移前为空，不覆盖现有远端工作。
