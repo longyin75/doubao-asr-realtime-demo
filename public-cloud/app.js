@@ -918,6 +918,9 @@
         } else if (override && speakerBindings[spk] && override.username && speakerBindings[spk].status === 'unknown') {
           speakerBindings[spk].username = override.username;
           speakerBindings[spk].status = override.status;
+          if (override.color) {
+            speakerBindings[spk].color = override.color;
+          }
         }
       });
     }
@@ -1332,7 +1335,7 @@
         speakerBindings[msg.speakerId] = {
           status: msg.confidence === 'high' ? 'matched_high' : 'matched_low',
           username: msg.username,
-          color: getSpeakerColor(msg.speakerId),
+          color: msg.color || getSpeakerColor(msg.speakerId),
           score: msg.score,
           confidence: msg.confidence,
           isGuest: false
@@ -1347,7 +1350,7 @@
         speakerBindings[msg.speakerId] = {
           status: 'guest',
           username: msg.guestName,
-          color: getSpeakerColor(msg.speakerId),
+          color: msg.color || getSpeakerColor(msg.speakerId),
           isGuest: true
         };
         addEvent('说话人' + (msg.speakerId + 1) + ' 标记为参会人');

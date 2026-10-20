@@ -56,6 +56,11 @@ export interface Config {
   voiceprintMaxEnroll: number;
   voiceprintMaxSessionSpeakers: number;
   voiceprintMinEnrollSec: number;
+  voiceprintDriftCorrectionEnabled: boolean;
+  voiceprintDriftThreshold: number;
+  voiceprintDriftMinScore: number;
+  voiceprintVerifyMinScore: number;
+  voiceprintGuestUpgradeHits: number;
 }
 
 const DEFAULT_RECORDINGS_DIR = 'recordings';
@@ -104,4 +109,9 @@ export const config: Config = {
   voiceprintMaxEnroll: parseInt(process.env.VOICEPRINT_MAX_ENROLL || '100', 10),
   voiceprintMaxSessionSpeakers: parseInt(process.env.VOICEPRINT_MAX_SESSION_SPEAKERS || '6', 10),
   voiceprintMinEnrollSec: parseInt(process.env.VOICEPRINT_MIN_ENROLL_SEC || '15', 10),
+  voiceprintDriftCorrectionEnabled: (process.env.VOICEPRINT_DRIFT_CORRECTION_ENABLED || 'true').toLowerCase() === 'true',
+  voiceprintDriftThreshold: parseInt(process.env.VOICEPRINT_DRIFT_THRESHOLD || '3', 10),
+  voiceprintDriftMinScore: parseInt(process.env.VOICEPRINT_DRIFT_MIN_SCORE || '75', 10),
+  voiceprintVerifyMinScore: parseInt(process.env.VOICEPRINT_VERIFY_MIN_SCORE || '60', 10),
+  voiceprintGuestUpgradeHits: parseInt(process.env.VOICEPRINT_GUEST_UPGRADE_HITS || '3', 10),
 };

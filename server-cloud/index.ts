@@ -971,15 +971,15 @@ wss.on('connection', (clientWs: WebSocket) => {
     }
   });
 
-  matcher.on('speaker_matched', (speakerId: number, username: string, score: number | undefined, confidence: 'high' | 'low', method: string) => {
+  matcher.on('speaker_matched', (speakerId: number, username: string, score: number | undefined, confidence: 'high' | 'low', method: string, color: string) => {
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify({ type: 'speaker_matched', speakerId, username, score, confidence, method }));
+      clientWs.send(JSON.stringify({ type: 'speaker_matched', speakerId, username, score, confidence, method, color }));
     }
   });
 
-  matcher.on('speaker_guest', (speakerId: number, guestName: string) => {
+  matcher.on('speaker_guest', (speakerId: number, guestName: string, color: string) => {
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify({ type: 'speaker_guest', speakerId, guestName }));
+      clientWs.send(JSON.stringify({ type: 'speaker_guest', speakerId, guestName, color }));
     }
   });
 

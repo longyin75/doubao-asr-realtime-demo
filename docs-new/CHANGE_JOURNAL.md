@@ -295,3 +295,25 @@
   - 从"非目标"中移除"不做声纹库持久化"条目
   - 新增7.3节本地声纹库持久化设计（存储方案、启动加载流程、写入时机、一致性保证）
 
+## 2026-10-20 (v5.0 声纹漂移纠正实现)
+
+- [FIX] 实现实时声纹标签漂移检测与自动纠正
+  - 已绑定和 guest 状态不再永久信任 ASR `speaker_id`，每个满足最短语音时长的 definite utterance 均重新提取 embedding 并校验。
+  - 新增连续漂移计数、当前绑定验证分数及验证时间；连续达到阈值后自动重映射为高置信注册人或 guest。
+  - guest 连续命中同一注册人达到阈值后自动升级为实名说话人。
+  - 增加 `VOICEPRINT_DRIFT_CORRECTION_ENABLED` 回退开关；关闭后恢复 v4.0 的“已绑定即跳过”行为。
+  - 增加漂移阈值、最低纠正分数、最低验证分数和 guest 升级次数配置项。
+
+- [FEAT] 统一说话人颜色与前端事件传递
+  - 后端按姓名分配并复用颜色，避免同一人在不同 ASR speaker 槽位显示不同颜色。
+  - `speaker_matched` 与 `speaker_guest` WebSocket 事件新增 `color` 字段。
+  - 前端优先使用后端颜色，并在历史覆盖信息更新时同步颜色。
+
+- [CHORE] 增强声纹判定日志
+  - 服务启动记录漂移纠正开关状态。
+  - 每个已处理分句记录时间范围、当前绑定、top1、分数、漂移计数与判定结果。
+
+- [DOCS] 实现与设计对齐
+  - 实现依据：`docs-new/REALTIME_VOICEPRINT_DESIGN.md` v5.0 第 13 节。
+  - 涉及文件：`server-cloud/realtime-speaker-matcher.ts`、`server-cloud/config.ts`、`server-cloud/index.ts`、`public-cloud/app.js`。
+  - 质量门禁结果记录于 `docs-new/TEST_EXECUTION_LOG.md`。

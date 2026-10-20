@@ -29,6 +29,10 @@ interface SpeakerState {
   matching: boolean;
   utteranceCount: number;
   timeoutTimer?: NodeJS.Timeout;
+  driftCounter: number;
+  lastVerifiedName?: string;
+  lastVerifiedScore?: number;
+  lastVerifiedAt?: number;
 }
 
 interface RingBufferChunk {
@@ -60,6 +64,8 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
   private bytesPerMs: number;
   private boundNames: Set<string> = new Set();
   private guestSeq: number = 0;
+  private nameColorMap: Map<string, string> = new Map();
+  private nextColorIdx: number = 0;
 
   constructor() {
     super();
@@ -179,6 +185,7 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
   }
 
   start(sessionStart: number): void {
+    console.log(`[vp] Drift correction: ${config.voiceprintDriftCorrectionEnabled ? 'enabled' : 'DISABLED (v4.0 fallback mode)'}`);
     this.audioStartTime = sessionStart;
     this.speakers.forEach((state) => {
       if (state.timeoutTimer) {
@@ -189,6 +196,8 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     this.ringBuffer = [];
     this.boundNames.clear();
     this.guestSeq = 0;
+    this.nameColorMap.clear();
+    this.nextColorIdx = 0;
     console.log(`[vp] Matcher started, globalSpeakers=${RealtimeSpeakerMatcher.globalSpeakerDB.size}`);
   }
 
@@ -244,11 +253,16 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
         firstSeenAt: Date.now(),
         matching: false,
         utteranceCount: 0,
+        driftCounter: 0,
       };
       this.speakers.set(speakerId, state);
     }
 
-    if (state.status === 'matched_high' || state.status === 'matched_low' || state.status === 'manual_bound' || state.status === 'guest') {
+    // v5.0: 不再跳过已绑定speaker，每句都校验（除非flag关闭回退到v4.0）
+    const useDriftCorrection = config.voiceprintDriftCorrectionEnabled;
+    const isBoundState = state.status === 'matched_high' || state.status === 'matched_low' || state.status === 'manual_bound' || state.status === 'guest';
+    if (isBoundState && !useDriftCorrection) {
+      // v4.0 fallback: 已绑定直接跳过
       return;
     }
 
@@ -261,7 +275,7 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     const { voiced, durationMs } = estimateVoiceActivity(utterancePcm);
     if (durationMs < 100) return;
 
-    this.processUtterance(speakerId, state, voiced, durationMs);
+    this.processUtterance(speakerId, state, voiced, durationMs, startTimeMs, endTimeMs);
   }
 
   manualBind(speakerId: number, username: string): void {
@@ -276,6 +290,7 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
         firstSeenAt: Date.now(),
         matching: false,
         utteranceCount: 0,
+        driftCounter: 0,
       };
       this.speakers.set(speakerId, state);
     }
@@ -294,9 +309,11 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     state.score = undefined;
     state.avgEmbedding = undefined;
     state.matching = false;
+    state.driftCounter = 0;
+    state.color = this.getOrAssignColor(username);
     this.boundNames.add(username);
     console.log(`[vp] speaker_matched (manual): spk=${speakerId}, username=${username}`);
-    this.emit('speaker_matched', speakerId, username, undefined, 'high', 'manual');
+    this.emit('speaker_matched', speakerId, username, undefined, 'high', 'manual', state.color);
   }
 
   reset(): void {
@@ -310,21 +327,35 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     this.audioStartTime = 0;
     this.boundNames.clear();
     this.guestSeq = 0;
+    this.nameColorMap.clear();
+    this.nextColorIdx = 0;
     console.log(`[vp] Matcher reset`);
   }
 
-  private async processUtterance(speakerId: number, state: SpeakerState, voiced: Buffer, newVoicedMs: number): Promise<void> {
+  private async processUtterance(speakerId: number, state: SpeakerState, voiced: Buffer, newVoicedMs: number, startTimeMs: number, endTimeMs: number): Promise<void> {
     if (state.matching) return;
 
-    if (state.status === 'unknown') {
-      state.status = 'identifying';
-      console.log(`[vp] speaker_identifying: spk=${speakerId}`);
-      this.emit('speaker_identifying', speakerId);
-      this.setupForceMatchTimeout(speakerId, state);
-    }
+    const useDriftCorrection = config.voiceprintDriftCorrectionEnabled;
+    const boundName = state.username || 'none';
+    let verdict = 'unknown';
 
-    if (newVoicedMs < config.voiceprintMinUttMs) {
-      return;
+    const isUnbound = state.status === 'unknown' || state.status === 'identifying' || state.status === 'candidate';
+
+    if (isUnbound) {
+      if (state.status === 'unknown') {
+        state.status = 'identifying';
+        console.log(`[vp] speaker_identifying: spk=${speakerId}`);
+        this.emit('speaker_identifying', speakerId);
+        this.setupForceMatchTimeout(speakerId, state);
+      }
+      if (newVoicedMs < config.voiceprintMinUttMs) {
+        return;
+      }
+    } else {
+      if (newVoicedMs < config.voiceprintMinUttMs) {
+        console.log(`[vp] utt: spk=${speakerId} time=[${startTimeMs},${endTimeMs}] bound=${boundName} top1=? drift=${state.driftCounter}/${config.voiceprintDriftThreshold} verdict=skip_short_audio`);
+        return;
+      }
     }
 
     state.matching = true;
@@ -333,52 +364,160 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
       const { embedding: newEmbedding } = await gpuEmbedClient.extractEmbedding(voiced, 'pcm');
       const normalizedNew = this.normalizeEmbedding(newEmbedding);
 
-      const results = this.cosineSearch(normalizedNew, this.boundNames);
+      const topMatch = this.findTopMatch(normalizedNew);
+      const top1Name = topMatch ? topMatch.name : 'none';
+      const top1Score = topMatch ? topMatch.score : 0;
 
-      if (results.length >= 1) {
-        const top1 = results[0];
-        const top2 = results.length >= 2 ? results[1] : null;
-        const margin = top2 ? top1.score - top2.score : 100;
-
-        if (top1.score >= config.voiceprintScoreEarlyStop && margin >= config.voiceprintScoreMargin) {
-          console.log(`[vp] Early match: spk=${speakerId}, name=${top1.name}, score=${top1.score}`);
-          this.confirmMatch(speakerId, state, top1.name, top1.score, 'high', 'early_stop');
-          return;
+      if (isUnbound || !useDriftCorrection) {
+        if (topMatch && topMatch.score >= config.voiceprintScoreEarlyStop) {
+          const margin = topMatch.secondScore !== undefined ? topMatch.score - topMatch.secondScore : 100;
+          if (margin >= config.voiceprintScoreMargin) {
+            verdict = 'match_high';
+            console.log(`[vp] Early match: spk=${speakerId}, name=${topMatch.name}, score=${topMatch.score}`);
+            this.confirmMatch(speakerId, state, topMatch.name, topMatch.score, 'high', 'early_stop');
+            this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
+            return;
+          }
         }
-      }
 
-      state.totalVoicedMs += newVoicedMs;
-      state.avgEmbedding = state.avgEmbedding
-        ? this.mergeEmbedding(state.avgEmbedding, normalizedNew, state.totalVoicedMs - newVoicedMs, newVoicedMs)
-        : normalizedNew;
+        state.totalVoicedMs += newVoicedMs;
+        state.avgEmbedding = state.avgEmbedding
+          ? this.mergeEmbedding(state.avgEmbedding, normalizedNew, state.totalVoicedMs - newVoicedMs, newVoicedMs)
+          : normalizedNew;
 
-      const mergedResults = this.cosineSearch(state.avgEmbedding, this.boundNames);
+        const mergedTop = this.findTopMatch(state.avgEmbedding);
 
-      if (mergedResults.length >= 1) {
-        const mergedTop1 = mergedResults[0];
+        if (mergedTop) {
+          if (state.candidateName === mergedTop.name) {
+            state.consecutiveHits++;
+          } else {
+            state.candidateName = mergedTop.name;
+            state.candidateScore = mergedTop.score;
+            state.consecutiveHits = 1;
+          }
 
-        if (state.candidateName === mergedTop1.name) {
-          state.consecutiveHits++;
+          if (state.consecutiveHits >= 2 && mergedTop.score >= config.voiceprintScoreConfirm) {
+            verdict = 'match_high';
+            console.log(`[vp] Incremental match: spk=${speakerId}, name=${mergedTop.name}, score=${mergedTop.score}`);
+            this.confirmMatch(speakerId, state, mergedTop.name, mergedTop.score, 'high', 'incremental');
+            this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
+            return;
+          }
+
+          if (state.status === 'identifying') {
+            state.status = 'candidate';
+            verdict = 'match_incremental_pending';
+          }
+        }
+
+        if (state.totalVoicedMs >= config.voiceprintForceMatchMs) {
+          this.tryForceMatchV5(speakerId, state, false, startTimeMs, endTimeMs, boundName, top1Name, top1Score);
+        }
+      } else {
+        const isGuest = state.status === 'guest';
+
+        if (!isGuest) {
+          if (topMatch && top1Name === state.username && top1Score >= config.voiceprintVerifyMinScore) {
+            verdict = 'confirm';
+            state.driftCounter = 0;
+            state.lastVerifiedName = top1Name;
+            state.lastVerifiedScore = top1Score;
+            state.lastVerifiedAt = Date.now();
+          } else if (topMatch && top1Name !== state.username && top1Score >= config.voiceprintDriftMinScore) {
+            state.driftCounter++;
+            if (state.driftCounter < config.voiceprintDriftThreshold) {
+              verdict = 'drift_ignore';
+            } else {
+              verdict = `DRIFT_CORRECTION→${top1Name}`;
+              const oldName = state.username!;
+              this.releaseColorIfUnused(oldName, speakerId);
+              this.resetSpeakerState(state);
+              state.status = 'matched_high';
+              state.username = top1Name;
+              state.score = top1Score;
+              state.driftCounter = 0;
+              state.lastVerifiedName = top1Name;
+              state.lastVerifiedScore = top1Score;
+              state.lastVerifiedAt = Date.now();
+              state.avgEmbedding = normalizedNew;
+              state.totalVoicedMs = newVoicedMs;
+              state.consecutiveHits = 1;
+              state.color = this.getOrAssignColor(top1Name);
+              state.matching = false;
+              if (state.timeoutTimer) {
+                clearTimeout(state.timeoutTimer);
+                state.timeoutTimer = undefined;
+              }
+              console.log(`[vp] DRIFT_CORRECTION: spk=${speakerId} ${oldName}→${top1Name}, score=${top1Score}, drift=${config.voiceprintDriftThreshold} hits`);
+              this.emit('speaker_matched', speakerId, top1Name, top1Score, 'high', 'drift_correction', state.color);
+              this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
+              return;
+            }
+          } else if (!topMatch || top1Score < config.voiceprintVerifyMinScore) {
+            verdict = 'ignore_low_score';
+          } else {
+            verdict = 'ignore_low_score';
+          }
+
+          if (topMatch && top1Score < config.voiceprintScoreLowConf) {
+            state.driftCounter++;
+            if (state.driftCounter >= config.voiceprintDriftThreshold) {
+              verdict = `guest→${'参会人' + (this.guestSeq+1)}`;
+              const oldName = state.username!;
+              this.releaseColorIfUnused(oldName, speakerId);
+              this.resetSpeakerState(state);
+              this.assignGuest(speakerId, state);
+              this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
+              return;
+            } else {
+              verdict = 'guest_drift_ignore';
+            }
+          }
         } else {
-          state.candidateName = mergedTop1.name;
-          state.candidateScore = mergedTop1.score;
-          state.consecutiveHits = 1;
-        }
-
-        if (state.consecutiveHits >= 2 && mergedTop1.score >= config.voiceprintScoreConfirm) {
-          console.log(`[vp] Incremental match: spk=${speakerId}, name=${mergedTop1.name}, score=${mergedTop1.score}`);
-          this.confirmMatch(speakerId, state, mergedTop1.name, mergedTop1.score, 'high', 'incremental');
-          return;
-        }
-
-        if (state.status === 'identifying') {
-          state.status = 'candidate';
+          if (topMatch && top1Score >= config.voiceprintDriftMinScore) {
+            if (state.candidateName === top1Name) {
+              state.driftCounter++;
+            } else {
+              state.candidateName = top1Name;
+              state.candidateScore = top1Score;
+              state.driftCounter = 1;
+            }
+            if (state.driftCounter >= config.voiceprintGuestUpgradeHits) {
+              verdict = `guest_upgrade→${top1Name}`;
+              const oldGuestName = state.username!;
+              this.releaseColorIfUnused(oldGuestName, speakerId);
+              this.resetSpeakerState(state);
+              state.status = 'matched_high';
+              state.username = top1Name;
+              state.score = top1Score;
+              state.driftCounter = 0;
+              state.lastVerifiedName = top1Name;
+              state.lastVerifiedScore = top1Score;
+              state.lastVerifiedAt = Date.now();
+              state.avgEmbedding = normalizedNew;
+              state.totalVoicedMs = newVoicedMs;
+              state.color = this.getOrAssignColor(top1Name);
+              state.matching = false;
+              if (state.timeoutTimer) {
+                clearTimeout(state.timeoutTimer);
+                state.timeoutTimer = undefined;
+              }
+              console.log(`[vp] Guest upgraded: spk=${speakerId}, name=${top1Name}, score=${top1Score}`);
+              this.emit('speaker_matched', speakerId, top1Name, top1Score, 'high', 'guest_upgrade', state.color);
+              this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
+              return;
+            } else {
+              verdict = 'guest_upgrade_pending';
+            }
+          } else {
+            state.driftCounter = 0;
+            state.candidateName = undefined;
+            verdict = 'confirm_guest';
+          }
         }
       }
 
-      if (state.totalVoicedMs >= config.voiceprintForceMatchMs) {
-        this.tryForceMatch(speakerId, state);
-      }
+      this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName, top1Name, top1Score, state, verdict);
     } catch (err) {
       console.error('[vp] Processing error:', err);
     } finally {
@@ -395,7 +534,7 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
       if (state.status === 'matched_high' || state.status === 'matched_low' || state.status === 'manual_bound' || state.status === 'guest') {
         return;
       }
-      this.tryForceMatch(speakerId, state, true);
+      this.tryForceMatchV5(speakerId, state, true);
     }, config.voiceprintMaxWaitMs);
   }
 
@@ -428,6 +567,102 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     }
   }
 
+  private tryForceMatchV5(speakerId: number, state: SpeakerState, isTimeout: boolean = false, startTimeMs?: number, endTimeMs?: number, boundName?: string, top1Name?: string, top1Score?: number): void {
+    if (state.matching) return;
+    if (!state.avgEmbedding) {
+      if (isTimeout) {
+        this.assignGuest(speakerId, state);
+        if (startTimeMs !== undefined && endTimeMs !== undefined) {
+          this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName || 'none', top1Name || 'none', top1Score || 0, state, 'guest');
+        }
+      }
+      return;
+    }
+
+    const top = this.findTopMatch(state.avgEmbedding);
+    if (!top) {
+      if (isTimeout) {
+        this.assignGuest(speakerId, state);
+        if (startTimeMs !== undefined && endTimeMs !== undefined) {
+          this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName || 'none', 'none', 0, state, 'guest');
+        }
+      }
+      return;
+    }
+
+    if (top.score >= config.voiceprintScoreForce) {
+      console.log(`[vp] Force match: spk=${speakerId}, name=${top.name}, score=${top.score}`);
+      this.confirmMatch(speakerId, state, top.name, top.score, 'high', 'force');
+      if (startTimeMs !== undefined && endTimeMs !== undefined) {
+        this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName || 'none', top.name, top.score, state, 'match_high');
+      }
+    } else if (top.score >= config.voiceprintScoreLowConf) {
+      console.log(`[vp] Low-conf match: spk=${speakerId}, name=${top.name}, score=${top.score}`);
+      this.confirmMatch(speakerId, state, top.name, top.score, 'low', 'force_lowconf');
+      if (startTimeMs !== undefined && endTimeMs !== undefined) {
+        this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName || 'none', top.name, top.score, state, 'match_low');
+      }
+    } else if (isTimeout) {
+      this.assignGuest(speakerId, state);
+      if (startTimeMs !== undefined && endTimeMs !== undefined) {
+        this.logVerdict(speakerId, startTimeMs, endTimeMs, boundName || 'none', top.name, top.score, state, 'guest');
+      }
+    }
+  }
+
+  private logVerdict(speakerId: number, startMs: number, endMs: number, bound: string, top1: string, top1Score: number, state: SpeakerState, verdict: string): void {
+    console.log(`[vp] utt: spk=${speakerId} time=[${startMs},${endMs}] bound=${bound} top1=${top1}:${top1Score} drift=${state.driftCounter}/${config.voiceprintDriftThreshold} verdict=${verdict}`);
+  }
+
+  private resetSpeakerState(state: SpeakerState): void {
+    if (state.timeoutTimer) {
+      clearTimeout(state.timeoutTimer);
+      state.timeoutTimer = undefined;
+    }
+    state.status = 'unknown';
+    state.username = undefined;
+    state.score = undefined;
+    state.avgEmbedding = undefined;
+    state.candidateName = undefined;
+    state.candidateScore = undefined;
+    state.consecutiveHits = 0;
+    state.totalVoicedMs = 0;
+    state.driftCounter = 0;
+    state.lastVerifiedName = undefined;
+    state.lastVerifiedScore = undefined;
+    state.lastVerifiedAt = undefined;
+  }
+
+  private releaseColorIfUnused(name: string, currentSpeakerId: number): void {
+    let inUse = false;
+    this.speakers.forEach((s, spkId) => {
+      if (spkId !== currentSpeakerId && s.username === name) {
+        inUse = true;
+      }
+    });
+    if (!inUse) {
+      this.nameColorMap.delete(name);
+    }
+  }
+
+  private findTopMatch(embedding: Float32Array): { name: string; score: number; secondScore: number } | null {
+    let best: { name: string; score: number } | null = null;
+    let secondBest = 0;
+    RealtimeSpeakerMatcher.globalSpeakerDB.forEach((storedEmb, name) => {
+      const sim = this.cosineSimilarity(embedding, storedEmb);
+      const score = Math.round((sim + 1) * 50);
+      if (!best || score > best.score) {
+        secondBest = best ? best.score : 0;
+        best = { name, score };
+      } else if (score > secondBest) {
+        secondBest = score;
+      }
+    });
+    if (!best) return null;
+    const bestResult = best as { name: string; score: number };
+    return { name: bestResult.name, score: bestResult.score, secondScore: secondBest };
+  }
+
   private assignGuest(speakerId: number, state: SpeakerState): void {
     if (state.timeoutTimer) {
       clearTimeout(state.timeoutTimer);
@@ -438,8 +673,9 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     state.status = 'guest';
     state.username = guestName;
     state.matching = false;
+    state.color = this.getOrAssignColor(guestName);
     console.log(`[vp] speaker_guest: spk=${speakerId}, guestName=${guestName}`);
-    this.emit('speaker_guest', speakerId, guestName);
+    this.emit('speaker_guest', speakerId, guestName, state.color);
   }
 
   private confirmMatch(speakerId: number, state: SpeakerState, name: string, score: number, confidence: 'high' | 'low', method: string): void {
@@ -453,9 +689,24 @@ export class RealtimeSpeakerMatcher extends EventEmitter {
     state.score = score;
     state.matching = false;
     state.avgEmbedding = undefined;
+    state.driftCounter = 0;
+    state.lastVerifiedName = name;
+    state.lastVerifiedScore = score;
+    state.lastVerifiedAt = Date.now();
+    state.color = this.getOrAssignColor(name);
     this.boundNames.add(name);
     console.log(`[vp] speaker_matched: spk=${speakerId}, name=${name}, score=${score}, conf=${confidence}, method=${method}`);
-    this.emit('speaker_matched', speakerId, name, score, confidence, method);
+    this.emit('speaker_matched', speakerId, name, score, confidence, method, state.color);
+  }
+
+  private getOrAssignColor(name: string): string {
+    if (this.nameColorMap.has(name)) {
+      return this.nameColorMap.get(name)!;
+    }
+    const color = SPEAKER_COLORS[this.nextColorIdx % SPEAKER_COLORS.length];
+    this.nameColorMap.set(name, color);
+    this.nextColorIdx++;
+    return color;
   }
 
   cosineSimilarity(a: Float32Array, b: Float32Array): number {
